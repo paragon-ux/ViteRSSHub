@@ -182,7 +182,17 @@ export function matchesSupportFilter(
     return true;
   }
 
+  if (filter === 'ready') {
+    return summary?.status === 'ready' || summary?.status === 'recommended';
+  }
+
   return summary?.status === filter;
+}
+
+export function isRouteUsableByDefault(
+  summary: RouteSupportSummary | undefined
+): boolean {
+  return matchesSupportFilter(summary, 'ready');
 }
 
 export function getTwitterSupportSourceLabel(support: TwitterSupport): string | undefined {

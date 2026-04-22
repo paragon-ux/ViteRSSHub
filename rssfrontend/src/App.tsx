@@ -1,19 +1,20 @@
 import {
   Bookmark,
   Bug,
-  ChevronDown,
-  ChevronUp,
+  ChevronRight,
   FileText,
   Home,
-  Rss,
   Settings2,
   SlidersHorizontal,
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import AdvancedRoutePanel from './components/AdvancedRoutePanel';
+import BrandMark from './components/BrandMark';
 import CategoryFilter from './components/CategoryFilter';
 import ConfigPanel from './components/ConfigPanel';
 import FeedBuilder from './components/FeedBuilder';
+import FeedCardsPreview from './components/FeedCardsPreview';
+import LiveFeedMode from './components/LiveFeedMode';
 import FeedPreview from './components/FeedPreview';
 import RouteDetails from './components/RouteDetails';
 import SavedFeeds from './components/SavedFeeds';
@@ -33,9 +34,10 @@ import { getConfigHints, mergeConfigEntries } from './utils/configHints';
 import { fetchRoutesCatalog } from './utils/fetchRoutes';
 import {
   getRouteSupportSummary,
+  isRouteUsableByDefault,
   matchesSupportFilter,
 } from './utils/routeSupport';
-import { flattenRoutesCatalog, normalizeBaseUrl, searchRoutes } from './utils/rsshub';
+import { flattenRoutesCatalog, searchRoutes } from './utils/rsshub';
 
 const DEFAULT_BASE_URL = 'http://localhost:1200';
 const DEFAULT_REMOTE_CONFIG_URL = '';
@@ -43,11 +45,22 @@ const DEFAULT_SUPPORT_FILTER: RouteSupportFilter = 'ready';
 
 type AppSection =
   | 'home'
+  | 'live-feed'
   | 'route-context'
   | 'advanced'
   | 'debug'
   | 'library'
   | 'config';
+
+type WorkflowStep = 1 | 2 | 3;
+
+type LiveFeedContext = {
+  feedUrl: string;
+  label?: string;
+  route?: RouteItem;
+  source: 'flow' | 'library';
+  savedFeedId?: string;
+};
 
 function normalizeRemoteConfigToEntries(payload: unknown): ConfigEntry[] {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
@@ -67,36 +80,29 @@ function getTimestampLabel(date: Date = new Date()): string {
   return date.toLocaleString();
 }
 
-function findPreferredRoute(
+function findMatchingRoute(
   routes: RouteItem[],
   current?: RouteItem
 ): RouteItem | undefined {
-  if (!routes.length) {
+  if (!current) {
     return undefined;
   }
 
-  if (current) {
-    const exact = routes.find((route) => route.id === current.id);
-    if (exact) {
-      return exact;
-    }
-  }
-
-  return routes[0];
+  return routes.find((route) => route.id === current.id);
 }
 
 function summarizeRouteDescription(route?: RouteItem): string {
   if (!route?.description.trim()) {
-    return 'Choose a route and then complete the required fields to generate a feed URL.';
+    return 'Ready to apply once you add the required inputs.';
   }
 
   const normalized = route.description.trim().replace(/\s+/g, ' ');
 
-  if (normalized.length <= 170) {
+  if (normalized.length <= 120) {
     return normalized;
   }
 
-  return `${normalized.slice(0, 167)}...`;
+  return `${normalized.slice(0, 117)}...`;
 }
 
 function formatSupportFilterLabel(filter: RouteSupportFilter): string {
@@ -116,14 +122,42 @@ function formatSupportFilterLabel(filter: RouteSupportFilter): string {
     return 'Unsupported';
   }
 
-  return 'Ready to use';
+  return 'Ready + optional';
+}
+
+function describeStepStatus(options: {
+  step: WorkflowStep;
+  selectedRoute?: RouteItem;
+  hasAppliedValues: boolean;
+  hasPendingChanges: boolean;
+}): string {
+  const { step, selectedRoute, hasAppliedValues, hasPendingChanges } = options;
+
+  if (step === 1) {
+    return selectedRoute ? 'Route selected' : 'Choose a route';
+  }
+
+  if (step === 2) {
+    if (!selectedRoute) {
+      return 'Locked';
+    }
+
+    if (hasAppliedValues && !hasPendingChanges) {
+      return 'Applied';
+    }
+
+    return 'Add inputs';
+  }
+
+  if (!hasAppliedValues) {
+    return 'Waiting';
+  }
+
+  return 'Live feed ready';
 }
 
 export default function App() {
-  const [baseUrl, setBaseUrl] = useLocalStorage<string>(
-    'rsshub.baseUrl',
-    DEFAULT_BASE_URL
-  );
+  const [baseUrl] = useLocalStorage<string>('rsshub.baseUrl', DEFAULT_BASE_URL);
   const [savedFeeds, setSavedFeeds] = useLocalStorage<SavedFeed[]>(
     'rsshub.savedFeeds',
     []
@@ -140,7 +174,8 @@ export default function App() {
   const [activeSupportFilter, setActiveSupportFilter] =
     useState<RouteSupportFilter>(DEFAULT_SUPPORT_FILTER);
   const [activeSection, setActiveSection] = useState<AppSection>('home');
-  const [isHomeSecondaryOpen, setIsHomeSecondaryOpen] = useState(false);
+  const [liveFeedContext, setLiveFeedContext] = useState<LiveFeedContext | null>(null);
+  const [currentStep, setCurrentStep] = useState<WorkflowStep>(1);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -170,7 +205,7 @@ export default function App() {
         }
 
         setRoutes(flattened);
-        setSelectedRoute((current) => findPreferredRoute(flattened, current));
+        setSelectedRoute((current) => findMatchingRoute(flattened, current));
       } catch (unknownError) {
         if (!isMounted) {
           return;
@@ -224,9 +259,9 @@ export default function App() {
     return getRouteSupportSummary(selectedRoute, configEntries);
   }, [configEntries, selectedRoute]);
 
-  const readyRouteCount = useMemo(() => {
-    return filteredRoutes.filter(
-      (route) => supportByRouteId.get(route.id)?.status === 'ready'
+  const usableRouteCount = useMemo(() => {
+    return filteredRoutes.filter((route) =>
+      isRouteUsableByDefault(supportByRouteId.get(route.id))
     ).length;
   }, [filteredRoutes, supportByRouteId]);
 
@@ -245,13 +280,19 @@ export default function App() {
   }, [configHints]);
 
   useEffect(() => {
-    if (!filteredRoutes.length) {
-      setSelectedRoute(undefined);
+    setSelectedRoute((current) => findMatchingRoute(filteredRoutes, current));
+  }, [filteredRoutes]);
+
+  useEffect(() => {
+    if (!selectedRoute) {
+      setCurrentStep(1);
       return;
     }
 
-    setSelectedRoute((current) => findPreferredRoute(filteredRoutes, current));
-  }, [filteredRoutes]);
+    if (currentStep === 3 && !composer.hasAppliedValues) {
+      setCurrentStep(2);
+    }
+  }, [composer.hasAppliedValues, currentStep, selectedRoute]);
 
   async function handleLoadRemote() {
     if (!endpointUrl.trim()) {
@@ -341,6 +382,7 @@ export default function App() {
 
   function handleSelectRoute(route: RouteItem) {
     setSelectedRoute(route);
+    setCurrentStep(1);
   }
 
   function handleSaveFeed(payload: {
@@ -359,24 +401,65 @@ export default function App() {
     setSavedFeeds((current) => [feed, ...current]);
   }
 
+  function handleOpenLiveFeed(payload: LiveFeedContext) {
+    setLiveFeedContext(payload);
+    setActiveSection('live-feed');
+  }
+
   function handleDeleteFeed(id: string) {
     setSavedFeeds((current) => current.filter((feed) => feed.id !== id));
+
+    if (liveFeedContext?.source === 'library' && liveFeedContext.savedFeedId === id) {
+      setLiveFeedContext(null);
+
+      if (activeSection === 'live-feed') {
+        setActiveSection('library');
+      }
+    }
   }
 
   const previewDisabled =
     !composer.feedUrl || !composer.hasAppliedValues || composer.isBlockedByTwitterSource;
+
+  const isStepTwoAvailable = Boolean(selectedRoute);
+  const isStepThreeAvailable = Boolean(selectedRoute && composer.hasAppliedValues);
 
   const navigationItems: Array<{
     id: AppSection;
     label: string;
     icon: typeof Home;
   }> = [
-    { id: 'home', label: 'Home', icon: Home },
+    { id: 'home', label: 'Flow', icon: Home },
     { id: 'route-context', label: 'Route', icon: FileText },
-    { id: 'advanced', label: 'Advanced', icon: SlidersHorizontal },
+    { id: 'advanced', label: 'Tune', icon: SlidersHorizontal },
     { id: 'debug', label: 'Debug', icon: Bug },
     { id: 'library', label: 'Library', icon: Bookmark },
     { id: 'config', label: 'Setup', icon: Settings2 },
+  ];
+  const workflowSteps: Array<{
+    id: WorkflowStep;
+    title: string;
+    available: boolean;
+    complete: boolean;
+  }> = [
+    {
+      id: 1,
+      title: 'Route search',
+      available: true,
+      complete: Boolean(selectedRoute),
+    },
+    {
+      id: 2,
+      title: 'Required path parameters',
+      available: isStepTwoAvailable,
+      complete: composer.hasAppliedValues,
+    },
+    {
+      id: 3,
+      title: 'Live feed',
+      available: isStepThreeAvailable,
+      complete: isStepThreeAvailable,
+    },
   ];
 
   function renderUtilitySection(section: Exclude<AppSection, 'home'>) {
@@ -398,7 +481,23 @@ export default function App() {
     }
 
     if (section === 'library') {
-      return <SavedFeeds feeds={savedFeeds} onDeleteFeed={handleDeleteFeed} />;
+      return (
+        <SavedFeeds
+          feeds={savedFeeds}
+          activeFeedId={
+            liveFeedContext?.source === 'library' ? liveFeedContext.savedFeedId : undefined
+          }
+          onDeleteFeed={handleDeleteFeed}
+          onOpenFeed={(feed) =>
+            handleOpenLiveFeed({
+              feedUrl: feed.url,
+              label: feed.label,
+              source: 'library',
+              savedFeedId: feed.id,
+            })
+          }
+        />
+      );
     }
 
     return (
@@ -420,50 +519,48 @@ export default function App() {
     );
   }
 
-  const mainHomeSurface = (
-    <section className="panel panel--primary workflow-surface workflow-surface--workbench">
-      <div className="workflow-shell-header">
-        <div className="workflow-caption">
-          <span className="hero-eyebrow">Discover and build</span>
-          <h2>Find a route and generate a feed.</h2>
-        </div>
+  const previewMode: 'pending_input' | 'unsupported' | 'ready' = composer.isBlockedByTwitterSource
+    ? 'unsupported'
+    : composer.hasAppliedValues && composer.feedUrl
+      ? 'ready'
+      : 'pending_input';
 
-        <div className="workflow-shell-metrics">
-          <span className="discover-meta-pill">
-            {filteredRoutes.length} visible result
-            {filteredRoutes.length === 1 ? '' : 's'}
-          </span>
-          <span className="discover-meta-pill">
-            {readyRouteCount} ready now
-          </span>
-          {selectedRouteSupport?.sourceLabel ? (
-            <span className="discover-meta-pill">{selectedRouteSupport.sourceLabel}</span>
-          ) : null}
-        </div>
-      </div>
-
-      <div className="discover-search-surface discover-search-surface--integrated">
-        <div className="workflow-search-row">
-          <div className="discover-search-copy">
-            <span className="discover-search-label">Route search</span>
-            <p>Search routes and pick a result.</p>
+  const activeWorkflowStep =
+    currentStep === 1 ? (
+      <article
+        className={[
+          'guided-step-panel',
+          'guided-step-panel--search',
+          'guided-step-panel--active-screen',
+          'active',
+          selectedRoute ? 'complete' : '',
+        ]
+          .filter(Boolean)
+          .join(' ')}
+      >
+        <div className="guided-step-header">
+          <div className="guided-step-copy">
+            <span className="guided-step-eyebrow">Step 1</span>
+            <h3>Route search</h3>
+            <p>Search and select a route.</p>
           </div>
-
-          <div className="discover-searchbar">
-            <SearchBar
-              query={query}
-              onQueryChange={setQuery}
-              results={filteredRoutes}
-              supportByRouteId={supportByRouteId}
-              selectedRouteId={selectedRoute?.id}
-              onSelectRoute={handleSelectRoute}
-              isLoading={isLoading}
-            />
-          </div>
+          <span className="guided-step-status">
+            {selectedRoute ? 'Selected' : 'Choose'}
+          </span>
         </div>
 
-        <div className="discover-toolbar">
-          <div className="discover-filter-cluster">
+        <div className="guided-step-body guided-step-body--search">
+          <SearchBar
+            query={query}
+            onQueryChange={setQuery}
+            results={filteredRoutes}
+            supportByRouteId={supportByRouteId}
+            selectedRouteId={selectedRoute?.id}
+            onSelectRoute={handleSelectRoute}
+            isLoading={isLoading}
+          />
+
+          <div className="discover-filter-cluster discover-filter-cluster--guided">
             <CategoryFilter
               categories={categories}
               activeCategory={activeCategory}
@@ -475,59 +572,135 @@ export default function App() {
             />
           </div>
 
-          <div className="discover-meta-row">
-            <span className="discover-meta-pill">Base URL: {baseUrl}</span>
-            {selectedRouteSupport ? (
-              <span className={selectedRouteSupport.badgeClassName}>
-                {selectedRouteSupport.label}
-              </span>
-            ) : null}
-          </div>
-        </div>
-
-        {selectedRoute ? (
-          <div className="workflow-route-summary">
-            <div className="workflow-route-copy">
-              <span className="panel-eyebrow">Selected route</span>
-              <div className="workflow-route-heading">
-                <h3>{selectedRoute.title}</h3>
+          {selectedRoute ? (
+            <div className="workflow-route-summary workflow-route-summary--guided">
+              <div className="workflow-route-copy">
+                <span className="panel-eyebrow">Selected route</span>
+                <div className="workflow-route-heading">
+                  <h3>{selectedRoute.title}</h3>
+                  {selectedRouteSupport ? (
+                    <span className={selectedRouteSupport.badgeClassName}>
+                      {selectedRouteSupport.label}
+                    </span>
+                  ) : null}
+                </div>
+                <p>{summarizeRouteDescription(selectedRoute)}</p>
                 {selectedRouteSupport ? (
-                  <span className={selectedRouteSupport.badgeClassName}>
-                    {selectedRouteSupport.label}
-                  </span>
+                  <p className="workflow-route-support-note">
+                    {selectedRouteSupport.description}
+                  </p>
                 ) : null}
               </div>
-              <p>{summarizeRouteDescription(selectedRoute)}</p>
-              {selectedRouteSupport ? (
-                <p className="workflow-route-support-note">
-                  {selectedRouteSupport.description}
-                </p>
-              ) : null}
-            </div>
 
-            <div className="workflow-route-meta">
-              <span className="badge subtle">{selectedRoute.namespace}</span>
-              <span className="badge">{selectedRoute.routePath}</span>
-              <span className="badge">
-                {composer.requiredParams.length
-                  ? `${composer.requiredParams.length} required parameter${
-                      composer.requiredParams.length === 1 ? '' : 's'
-                    }`
-                  : 'No required parameters'}
-              </span>
-              {selectedRouteSupport?.sourceLabel ? (
-                <span className="badge">{selectedRouteSupport.sourceLabel}</span>
-              ) : null}
+              <div className="workflow-route-meta">
+                <span className="badge subtle">{selectedRoute.namespace}</span>
+                <span className="badge">{selectedRoute.routePath}</span>
+                <span className="badge">
+                  {composer.requiredParams.length
+                    ? `${composer.requiredParams.length} required parameter${
+                        composer.requiredParams.length === 1 ? '' : 's'
+                      }`
+                    : 'No required parameters'}
+                </span>
+                {selectedRouteSupport?.sourceLabel ? (
+                  <span className="badge">{selectedRouteSupport.sourceLabel}</span>
+                ) : null}
+              </div>
             </div>
+          ) : (
+            <StateBlock
+              compact
+              variant="info"
+              title="Choose a route to continue"
+              message="Select a route to unlock the next step."
+            />
+          )}
+        </div>
+
+        <div className="guided-step-footer guided-step-footer--solo">
+          <button
+            type="button"
+            className="primary-button"
+            onClick={() => setCurrentStep(2)}
+            disabled={!selectedRoute}
+          >
+            <span>Continue</span>
+            <ChevronRight size={16} />
+          </button>
+        </div>
+      </article>
+    ) : currentStep === 2 ? (
+      <FeedBuilder
+        route={selectedRoute}
+        composer={composer}
+        supportSummary={selectedRouteSupport}
+        isActive
+        isAvailable={isStepTwoAvailable}
+        onApplied={() => setCurrentStep(3)}
+      />
+    ) : (
+      <article
+        className={[
+          'guided-step-panel',
+          'guided-step-panel--preview',
+          'guided-step-panel--active-screen',
+          'guided-step-panel--viewport',
+          'active',
+          isStepThreeAvailable ? 'available' : 'locked',
+        ]
+          .filter(Boolean)
+          .join(' ')}
+      >
+        <div className="guided-step-header">
+          <div className="guided-step-copy">
+            <span className="guided-step-eyebrow">Step 3</span>
+            <h3>Live feed</h3>
+            <p>Confirm the feed is ready, then open the dedicated live-feed view.</p>
           </div>
-        ) : (
-          <StateBlock
-            compact
-            variant="info"
-            title="Pick a route to begin"
-            message="Select an RSSHub route before filling parameters."
+          <span className="guided-step-status">
+            {isStepThreeAvailable ? 'Ready' : 'Waiting'}
+          </span>
+        </div>
+
+        <div className="guided-step-body">
+          <FeedCardsPreview
+            feedUrl={composer.feedUrl}
+            mode={previewMode}
+            unavailableReason={composer.builderNotice}
+            hasPendingChanges={composer.hasPendingChanges && composer.hasAppliedValues}
+            route={selectedRoute}
+            onSaveFeed={handleSaveFeed}
+            onOpenLiveFeed={() =>
+              handleOpenLiveFeed({
+                feedUrl: composer.feedUrl,
+                label: selectedRoute?.title,
+                route: selectedRoute,
+                source: 'flow',
+              })
+            }
           />
-        )}
+        </div>
+      </article>
+    );
+
+  const mainHomeSurface = (
+    <section className="panel panel--primary workflow-surface workflow-surface--guided">
+      <div className="workflow-shell-header workflow-shell-header--compact">
+        <div className="workflow-caption">
+          <span className="hero-eyebrow">Guided workflow</span>
+          <h2>Search a route, apply the inputs, and use the live feed.</h2>
+        </div>
+
+        <div className="workflow-shell-metrics workflow-shell-metrics--compact">
+          <span className="discover-meta-pill">
+            {filteredRoutes.length} visible result
+            {filteredRoutes.length === 1 ? '' : 's'}
+          </span>
+          <span className="discover-meta-pill discover-meta-pill--active">
+            {usableRouteCount} usable now
+          </span>
+          <span className="discover-meta-pill">{savedFeeds.length} saved</span>
+        </div>
       </div>
 
       {error ? (
@@ -548,213 +721,124 @@ export default function App() {
         />
       ) : null}
 
-      <FeedBuilder
-        embedded
-        route={selectedRoute}
-        composer={composer}
-        supportSummary={selectedRouteSupport}
-        onSaveFeed={handleSaveFeed}
-      />
+      <div className="workflow-stepper">
+        {workflowSteps.map((step, index) => {
+          const isActive = currentStep === step.id;
+          const isClickable = step.id === 1 || step.available;
 
-      <div className="workflow-secondary-shell">
-        <button
-          type="button"
-          className="workflow-secondary-toggle"
-          onClick={() => setIsHomeSecondaryOpen((current) => !current)}
-          aria-expanded={isHomeSecondaryOpen}
-        >
-          {isHomeSecondaryOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-          <span>{isHomeSecondaryOpen ? 'Hide supporting tools' : 'Show supporting tools'}</span>
-        </button>
+          return (
+            <div key={step.id} className="workflow-stepper-segment">
+              <button
+                type="button"
+                className={[
+                  'workflow-step-button',
+                  isActive ? 'active' : '',
+                  step.complete ? 'complete' : '',
+                  step.available ? 'available' : 'locked',
+                ]
+                  .filter(Boolean)
+                  .join(' ')}
+                onClick={() => {
+                  if (isClickable) {
+                    setCurrentStep(step.id);
+                  }
+                }}
+                disabled={!isClickable}
+                aria-current={isActive ? 'step' : undefined}
+              >
+                <span className="workflow-step-index">0{step.id}</span>
+                <span className="workflow-step-copy">
+                  <strong>{step.title}</strong>
+                  <span>
+                    {describeStepStatus({
+                      step: step.id,
+                      selectedRoute,
+                      hasAppliedValues: composer.hasAppliedValues,
+                      hasPendingChanges: composer.hasPendingChanges,
+                    })}
+                  </span>
+                </span>
+              </button>
 
-        {isHomeSecondaryOpen ? (
-          <div className="workflow-secondary-region">
-            <details className="secondary-disclosure">
-              <summary>
-                <div>
-                  <strong>Generated feed details</strong>
-                  <p>Adjust base URL or format without crowding the primary workflow.</p>
-                </div>
-                <ChevronDown size={18} />
-              </summary>
-
-              <div className="secondary-disclosure-content">
-                <div className="advanced-route-stack">
-                  <div className="surface-card surface-card--quiet">
-                    <div className="section-heading">
-                      <h3>Instance and format</h3>
-                      <p>Format changes apply the next time you submit the current parameter set.</p>
-                    </div>
-
-                    <label className="field-group">
-                      <span className="field-label">RSSHub base URL</span>
-                      <input
-                        className="text-input"
-                        type="text"
-                        value={baseUrl}
-                        onChange={(event) =>
-                          setBaseUrl(normalizeBaseUrl(event.target.value))
-                        }
-                        placeholder="http://localhost:1200"
-                      />
-                    </label>
-
-                    <div className="field-group">
-                      <span className="field-label">Feed format</span>
-                      <div className="format-toggle">
-                        {(['rss', 'atom', 'json', 'debug'] as const).map((format) => (
-                          <button
-                            key={format}
-                            type="button"
-                            className={composer.format === format ? 'active' : ''}
-                            onClick={() => composer.setFormat(format)}
-                          >
-                            {format.toUpperCase()}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    {composer.feedUrl ? (
-                      <div className="builder-output-inline builder-output-inline--secondary">
-                        <div className="section-heading">
-                          <h3>Current applied URL</h3>
-                          <p>This remains stable until you apply the draft values again.</p>
-                        </div>
-                        <textarea
-                          className="url-output url-output--compact"
-                          value={composer.feedUrl}
-                          readOnly
-                        />
-                      </div>
-                    ) : null}
-                  </div>
-                </div>
-              </div>
-            </details>
-
-            <details className="secondary-disclosure">
-              <summary>
-                <div>
-                  <strong>Route context</strong>
-                  <p>Inspect route metadata, docs links, and support requirements.</p>
-                </div>
-                <ChevronDown size={18} />
-              </summary>
-
-              <div className="secondary-disclosure-content">
-                <RouteDetails
-                  route={selectedRoute}
-                  supportSummary={selectedRouteSupport}
-                />
-              </div>
-            </details>
-
-            <details className="secondary-disclosure">
-              <summary>
-                <div>
-                  <strong>Advanced route tuning</strong>
-                  <p>Reveal optional path and query controls only when you need them.</p>
-                </div>
-                <ChevronDown size={18} />
-              </summary>
-
-              <div className="secondary-disclosure-content">
-                <AdvancedRoutePanel route={selectedRoute} composer={composer} />
-              </div>
-            </details>
-
-            <details className="secondary-disclosure">
-              <summary>
-                <div>
-                  <strong>Debug preview</strong>
-                  <p>Inspect the raw debug output only when the compact preview needs deeper verification.</p>
-                </div>
-                <ChevronDown size={18} />
-              </summary>
-
-              <div className="secondary-disclosure-content">
-                <FeedPreview feedUrl={composer.feedUrl} disabled={previewDisabled} />
-              </div>
-            </details>
-
-            <details className="secondary-disclosure">
-              <summary>
-                <div>
-                  <strong>Saved library</strong>
-                  <p>Review feeds you already saved without leaving the workflow page.</p>
-                </div>
-                <ChevronDown size={18} />
-              </summary>
-
-              <div className="secondary-disclosure-content">
-                <SavedFeeds feeds={savedFeeds} onDeleteFeed={handleDeleteFeed} />
-              </div>
-            </details>
-
-            <details className="secondary-disclosure">
-              <summary>
-                <div>
-                  <strong>Instance setup</strong>
-                  <p>Manage remote config, API keys, and instance requirements off the main path.</p>
-                </div>
-                <ChevronDown size={18} />
-              </summary>
-
-              <div className="secondary-disclosure-content">
-                <ConfigPanel
-                  hints={configHints}
-                  entries={configEntries}
-                  endpointUrl={endpointUrl}
-                  onChangeEndpointUrl={setEndpointUrl}
-                  onChangeEntries={setConfigEntries}
-                  onLoadRemote={handleLoadRemote}
-                  onSaveRemote={handleSaveRemote}
-                  isLoadingRemote={isLoadingRemote}
-                  isSavingRemote={isSavingRemote}
-                  lastLoadedAt={lastLoadedAt}
-                  lastSavedAt={lastSavedAt}
-                  statusMessage={statusMessage}
-                  errorMessage={errorMessage}
-                />
-              </div>
-            </details>
-          </div>
-        ) : null}
+              {index < workflowSteps.length - 1 ? (
+                <span className="workflow-step-connector" aria-hidden="true">
+                  <ChevronRight size={16} />
+                </span>
+              ) : null}
+            </div>
+          );
+        })}
       </div>
+
+      <div className="workflow-step-stage">{activeWorkflowStep}</div>
     </section>
   );
 
   const utilitySurface = (
     <section className="panel panel--primary utility-view-panel">
-      {renderUtilitySection(activeSection === 'home' ? 'route-context' : activeSection)}
+      {renderUtilitySection(
+        activeSection as Exclude<AppSection, 'home' | 'live-feed'>
+      )}
     </section>
   );
+
+  const liveFeedSurface = liveFeedContext ? (
+    <section className="panel panel--primary utility-view-panel">
+      <LiveFeedMode
+        feedUrl={liveFeedContext.feedUrl}
+        mode={liveFeedContext.feedUrl ? 'ready' : 'pending_input'}
+        unavailableReason={
+          liveFeedContext.source === 'flow' ? composer.builderNotice : undefined
+        }
+        hasPendingChanges={
+          liveFeedContext.source === 'flow'
+            ? composer.hasPendingChanges && composer.hasAppliedValues
+            : false
+        }
+        route={liveFeedContext.route}
+        feedLabel={liveFeedContext.label}
+        entrySource={liveFeedContext.source}
+        onBack={() =>
+          setActiveSection(liveFeedContext.source === 'library' ? 'library' : 'home')
+        }
+        onSaveFeed={liveFeedContext.route ? handleSaveFeed : undefined}
+      />
+    </section>
+  ) : null;
+
+  const highlightedSection: AppSection =
+    activeSection === 'live-feed'
+      ? liveFeedContext?.source === 'library'
+        ? 'library'
+        : 'home'
+      : activeSection;
 
   return (
     <div className="app-frame">
       <main className="app-page">
         <header className="app-topbar">
           <div className="brand brand--topbar">
-            <div className="brand-icon">
-              <Rss size={18} />
+            <div className="brand-icon brand-icon--shell">
+              <BrandMark size={52} className="brand-mark" />
             </div>
-            <div>
-              <span className="brand-eyebrow">RSSHubVite</span>
-              <h1>Compact route-to-feed workflow</h1>
+
+            <div className="brand-copy">
+              <span className="brand-eyebrow">Live feed workflow</span>
+              <h1>RSSHubVite</h1>
+              <p>Route search, applied inputs, and live feed output in one place.</p>
             </div>
           </div>
 
           <div className="topbar-meta">
             <span className="discover-meta-pill">{routes.length} routes indexed</span>
-            <span className="discover-meta-pill">{savedFeeds.length} saved feeds</span>
+            <span className="discover-meta-pill discover-meta-pill--active">
+              {usableRouteCount} usable now
+            </span>
             {activeCategory ? (
-              <span className="discover-meta-pill discover-meta-pill--active">
-                {activeCategory}
-              </span>
+              <span className="discover-meta-pill">{activeCategory}</span>
             ) : null}
             {activeSupportFilter !== 'all' ? (
-              <span className="discover-meta-pill discover-meta-pill--active">
+              <span className="discover-meta-pill">
                 {formatSupportFilterLabel(activeSupportFilter)}
               </span>
             ) : null}
@@ -763,14 +847,18 @@ export default function App() {
 
         <div className="workspace-layout">
           <section className="workspace-main">
-            {activeSection === 'home' ? mainHomeSurface : utilitySurface}
+            {activeSection === 'home'
+              ? mainHomeSurface
+              : activeSection === 'live-feed'
+                ? (liveFeedSurface ?? mainHomeSurface)
+                : utilitySurface}
           </section>
 
           <aside className="utility-rail">
-            <nav className="utility-nav" aria-label="Context and tools">
+            <nav className="utility-nav" aria-label="Workflow views">
               {navigationItems.map((item) => {
                 const Icon = item.icon;
-                const isActive = activeSection === item.id;
+                const isActive = highlightedSection === item.id;
 
                 return (
                   <button

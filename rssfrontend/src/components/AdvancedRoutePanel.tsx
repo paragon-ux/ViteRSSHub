@@ -19,7 +19,7 @@ export default function AdvancedRoutePanel({
 }: AdvancedRoutePanelProps) {
   if (!route) {
     return (
-      <section className="panel panel--secondary">
+      <section className="panel panel--secondary utility-mode-panel">
         <StateBlock
           title="No route selected"
           message="Pick a route first to see optional path parameters and advanced query tuning."
@@ -32,7 +32,7 @@ export default function AdvancedRoutePanel({
     composer.optionalParams.length > 0 || composer.queryRows.length > 0;
 
   return (
-    <section className="panel panel--secondary">
+    <section className="panel panel--secondary utility-mode-panel">
       <div className="panel-header">
         <div className="panel-header-copy">
           <span className="panel-eyebrow">Advanced route tuning</span>

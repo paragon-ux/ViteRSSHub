@@ -1,11 +1,10 @@
 import {
   ArrowRight,
   CheckCircle2,
-  Copy,
-  ExternalLink,
-  Save,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import type { FeedComposerState } from '../hooks/useFeedComposer';
 import {
   getParamHelp,
@@ -14,37 +13,32 @@ import {
 } from '../hooks/useFeedComposer';
 import type { RouteItem } from '../types';
 import type { RouteSupportSummary } from '../utils/routeSupport';
-import FeedCardsPreview from './FeedCardsPreview';
 import StateBlock from './StateBlock';
 
 type FeedBuilderProps = {
-  embedded?: boolean;
   route?: RouteItem;
   composer: FeedComposerState;
   supportSummary?: RouteSupportSummary;
-  onSaveFeed: (payload: {
-    label: string;
-    url: string;
-    routeId: string;
-  }) => void;
+  isActive: boolean;
+  isAvailable: boolean;
+  onApplied: () => void;
 };
 
+const PARAMS_PER_PAGE = 4;
+
 export default function FeedBuilder({
-  embedded = false,
   route,
   composer,
   supportSummary,
-  onSaveFeed,
+  isActive,
+  isAvailable,
+  onApplied,
 }: FeedBuilderProps) {
-  const [saveLabel, setSaveLabel] = useState(route?.title ?? '');
-  const [copied, setCopied] = useState(false);
-  const [saved, setSaved] = useState(false);
+  const [paramPage, setParamPage] = useState(0);
 
   useEffect(() => {
-    setSaveLabel(route?.title ?? '');
-    setCopied(false);
-    setSaved(false);
-  }, [route?.id, composer.feedUrl]);
+    setParamPage(0);
+  }, [route?.id]);
 
   const applyDisabled =
     !composer.canApply || (composer.hasAppliedValues && !composer.hasPendingChanges);
@@ -55,7 +49,7 @@ export default function FeedBuilder({
     }
 
     if (!composer.hasAppliedValues) {
-      return 'Apply and preview';
+      return 'Apply and continue';
     }
 
     if (composer.hasPendingChanges) {
@@ -65,88 +59,117 @@ export default function FeedBuilder({
     return 'Applied';
   }, [composer.hasAppliedValues, composer.hasPendingChanges, route]);
 
-  const previewMode = useMemo<'pending_input' | 'unsupported' | 'ready'>(() => {
-    if (composer.isBlockedByTwitterSource) {
-      return 'unsupported';
+  const paramPages = useMemo(() => {
+    if (!composer.requiredParams.length) {
+      return [[]] as FeedComposerState['requiredParams'][];
     }
 
-    if (!route || !composer.hasAppliedValues || !composer.feedUrl) {
-      return 'pending_input';
+    const pages: FeedComposerState['requiredParams'][] = [];
+    for (let index = 0; index < composer.requiredParams.length; index += PARAMS_PER_PAGE) {
+      pages.push(composer.requiredParams.slice(index, index + PARAMS_PER_PAGE));
     }
 
-    return 'ready';
-  }, [
-    composer.feedUrl,
-    composer.hasAppliedValues,
-    composer.isBlockedByTwitterSource,
-    route,
-  ]);
+    return pages;
+  }, [composer.requiredParams]);
 
-  async function handleCopyFeedUrl() {
-    if (!composer.feedUrl) {
+  const currentParamPage = paramPages[paramPage] ?? [];
+  const hasMultiplePages = paramPages.length > 1;
+
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (applyDisabled) {
       return;
     }
 
-    await navigator.clipboard.writeText(composer.feedUrl);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1600);
-  }
-
-  function handleSaveFeed() {
-    if (!route || !composer.feedUrl) {
-      return;
-    }
-
-    onSaveFeed({
-      label: saveLabel.trim() || route.title,
-      url: composer.feedUrl,
-      routeId: route.id,
-    });
-
-    setSaved(true);
-    window.setTimeout(() => setSaved(false), 1800);
+    composer.applyDraft();
+    onApplied();
   }
 
   return (
-    <section className={embedded ? 'feed-builder feed-builder--embedded' : 'feed-builder'}>
-      <div className="surface-card builder-flow-card">
-        <form
-          className="builder-flow-section"
-          onSubmit={(event) => {
-            event.preventDefault();
-            composer.applyDraft();
-          }}
-        >
-          <div className="panel-header panel-header--center">
-            <div className="panel-header-copy">
-              <span className="panel-eyebrow">Step 2</span>
-              <h2>Required path parameters</h2>
-              <p>Fill the required route fields, then apply them once to refresh the feed output and preview.</p>
-            </div>
-
-            <div className="panel-header-actions">
-              <button
-                type="submit"
-                className="primary-button"
-                disabled={applyDisabled}
-              >
-                <ArrowRight size={16} />
-                <span>{applyLabel}</span>
-              </button>
-            </div>
+    <article
+      className={[
+        'guided-step-panel',
+        'guided-step-panel--builder',
+        'guided-step-panel--viewport',
+        isActive ? 'active' : '',
+        isAvailable ? 'available' : 'locked',
+        composer.hasAppliedValues ? 'complete' : '',
+      ]
+        .filter(Boolean)
+        .join(' ')}
+    >
+      <form className="guided-step-form" onSubmit={handleSubmit}>
+        <div className="guided-step-header">
+          <div className="guided-step-copy">
+            <span className="guided-step-eyebrow">Step 2</span>
+            <h3>Required path parameters</h3>
+            <p>Fill the required fields, then apply once.</p>
           </div>
 
+          <span className="guided-step-status">
+            {composer.hasAppliedValues && !composer.hasPendingChanges
+              ? 'Applied'
+              : isAvailable
+                ? 'Ready'
+                : 'Locked'}
+          </span>
+        </div>
+
+        <div className="guided-step-body">
           {!route ? (
             <StateBlock
               compact
-              title="Pick a route first"
-              message="Use Route search above to choose a route before filling any parameters."
+              title="Choose a route first"
+              message="Select a route to unlock this step."
             />
           ) : (
             <>
               {composer.requiredParams.length ? (
+                <div className="builder-param-toolbar">
+                  <span className="badge subtle">
+                    {composer.requiredParams.length} required
+                  </span>
+
+                  {hasMultiplePages ? (
+                    <div className="builder-param-pager">
+                      <button
+                        type="button"
+                        className="ghost-button"
+                        onClick={() =>
+                          setParamPage((current) => Math.max(0, current - 1))
+                        }
+                        disabled={paramPage === 0}
+                      >
+                        <ChevronLeft size={16} />
+                        <span>Fields</span>
+                      </button>
+
+                      <span className="builder-param-page-label">
+                        {paramPage + 1} / {paramPages.length}
+                      </span>
+
+                      <button
+                        type="button"
+                        className="ghost-button"
+                        onClick={() =>
+                          setParamPage((current) =>
+                            Math.min(paramPages.length - 1, current + 1)
+                          )
+                        }
+                        disabled={paramPage >= paramPages.length - 1}
+                      >
+                        <span>More</span>
+                        <ChevronRight size={16} />
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {composer.requiredParams.length ? (
                 <div className="param-grid">
-                  {composer.requiredParams.map((param) => {
+                  {currentParamPage.map((param) => {
                     const helpText = getParamHelp(route, param.name);
 
                     return (
@@ -173,7 +196,7 @@ export default function FeedBuilder({
                 </div>
               ) : (
                 <div className="builder-empty-note">
-                  <p>This route does not need required path parameters. Apply once to generate the feed and load preview cards.</p>
+                  <p>This route does not need required path parameters. Apply once to continue.</p>
                 </div>
               )}
 
@@ -191,24 +214,19 @@ export default function FeedBuilder({
               ) : null}
 
               <div className="builder-submit-row">
-                <div className="builder-submit-copy">
-                  {composer.hasPendingChanges ? (
-                    <span className="inline-state-note">
-                      <ArrowRight size={14} />
-                      <span>Apply the current values to refresh the generated feed and preview.</span>
-                    </span>
-                  ) : composer.hasAppliedValues ? (
-                    <span className="inline-state-note">
+                <span className="inline-state-note">
+                  {composer.hasAppliedValues && !composer.hasPendingChanges ? (
+                    <>
                       <CheckCircle2 size={14} />
-                      <span>Preview is showing the last applied route values.</span>
-                    </span>
+                      <span>Applied</span>
+                    </>
                   ) : (
-                    <span className="inline-state-note">
+                    <>
                       <ArrowRight size={14} />
-                      <span>Apply once to lock in the current parameter set.</span>
-                    </span>
+                      <span>Apply to update the live feed.</span>
+                    </>
                   )}
-                </div>
+                </span>
 
                 {supportSummary ? (
                   <span className={supportSummary.badgeClassName}>
@@ -216,86 +234,21 @@ export default function FeedBuilder({
                   </span>
                 ) : null}
               </div>
-
-              <div className="builder-output-inline">
-                <div className="builder-output-top">
-                  <div className="section-heading">
-                    <h3>Generated feed</h3>
-                    <p>Copy, open, or save the last applied feed without leaving the main flow.</p>
-                  </div>
-
-                  {composer.hasPendingChanges && composer.hasAppliedValues ? (
-                    <span className="badge">Showing last applied feed</span>
-                  ) : null}
-                </div>
-
-                {composer.feedUrl ? (
-                  <>
-                    <textarea
-                      className="url-output url-output--compact"
-                      value={composer.feedUrl}
-                      readOnly
-                    />
-
-                    <div className="builder-output-actions">
-                      <button
-                        type="button"
-                        className="secondary-button"
-                        onClick={() => void handleCopyFeedUrl()}
-                      >
-                        <Copy size={16} />
-                        <span>{copied ? 'Copied' : 'Copy URL'}</span>
-                      </button>
-
-                      <a
-                        href={composer.feedUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="ghost-button"
-                      >
-                        <ExternalLink size={16} />
-                        <span>Open raw feed</span>
-                      </a>
-                    </div>
-
-                    <div className="builder-save-inline">
-                      <input
-                        className="text-input"
-                        type="text"
-                        value={saveLabel}
-                        onChange={(event) => setSaveLabel(event.target.value)}
-                        placeholder={route?.title ?? 'Saved feed label'}
-                      />
-
-                      <button
-                        type="button"
-                        className="secondary-button"
-                        onClick={handleSaveFeed}
-                      >
-                        <Save size={16} />
-                        <span>{saved ? 'Saved' : 'Save feed'}</span>
-                      </button>
-                    </div>
-                  </>
-                ) : (
-                  <div className="builder-empty-note">
-                    <p>Apply the current parameter set to generate a feed URL and unlock the in-page preview.</p>
-                  </div>
-                )}
-              </div>
             </>
           )}
-        </form>
-
-        <div className="builder-flow-section builder-flow-section--preview">
-          <FeedCardsPreview
-            feedUrl={composer.feedUrl}
-            mode={previewMode}
-            unavailableReason={composer.builderNotice}
-            hasPendingChanges={composer.hasPendingChanges && composer.hasAppliedValues}
-          />
         </div>
-      </div>
-    </section>
+
+        <div className="guided-step-footer guided-step-footer--solo">
+          <button
+            type="submit"
+            className="primary-button"
+            disabled={applyDisabled}
+          >
+            <span>{applyLabel}</span>
+            <ArrowRight size={16} />
+          </button>
+        </div>
+      </form>
+    </article>
   );
 }

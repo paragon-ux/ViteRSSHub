@@ -159,7 +159,7 @@ export default function ConfigPanel({
   }
 
   return (
-    <section className="panel panel--secondary config-panel">
+    <section className="panel panel--secondary utility-mode-panel config-panel">
       <PanelHeader
         eyebrow="Instance setup"
         title="Config"

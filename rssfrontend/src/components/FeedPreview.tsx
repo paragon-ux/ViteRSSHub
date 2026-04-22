@@ -42,7 +42,7 @@ export default function FeedPreview({
   }
 
   return (
-    <section className="panel panel--muted feed-preview">
+    <section className="panel panel--muted utility-mode-panel feed-preview">
       <PanelHeader
         eyebrow="Debug"
         title="Raw feed response"

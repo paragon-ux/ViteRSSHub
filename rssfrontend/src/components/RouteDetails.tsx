@@ -45,7 +45,7 @@ export default function RouteDetails({
 }: RouteDetailsProps) {
   if (!route) {
     return (
-      <section className="panel panel--context route-details empty">
+      <section className="panel panel--context utility-mode-panel route-details empty">
         <PanelHeader
           eyebrow="Route details"
           title="Choose a route to inspect"
@@ -67,7 +67,7 @@ export default function RouteDetails({
   const showDescription = shouldShowDescription(route.description);
 
   return (
-    <section className="panel panel--context route-details">
+    <section className="panel panel--context utility-mode-panel route-details">
       <PanelHeader
         eyebrow="Route details"
         title={route.title}

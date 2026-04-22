@@ -1,17 +1,15 @@
 import {
-  AlertCircle,
+  ArrowRight,
+  Check,
+  Copy,
   ExternalLink,
-  LoaderCircle,
-  RefreshCw,
+  RadioTower,
+  Save,
 } from 'lucide-react';
-import { useEffect, useState } from 'react';
-import { useDebouncedValue } from '../hooks/useDebouncedValue';
-import {
-  FeedPreviewRequestError,
-  fetchFeedPreview,
-  type FeedPreviewItem,
-  type FeedPreviewResult,
-} from '../utils/feedPreview';
+import { useEffect, useMemo, useState } from 'react';
+import { useLiveFeedPreview, type LiveFeedFailure } from '../hooks/useLiveFeedPreview';
+import type { RouteItem } from '../types';
+import BrandMark from './BrandMark';
 import StateBlock from './StateBlock';
 
 type FeedCardsPreviewProps = {
@@ -19,112 +17,33 @@ type FeedCardsPreviewProps = {
   mode: 'pending_input' | 'unsupported' | 'ready';
   unavailableReason?: string;
   hasPendingChanges?: boolean;
+  route?: RouteItem;
+  feedLabel?: string;
+  onSaveFeed: (payload: {
+    label: string;
+    url: string;
+    routeId: string;
+  }) => void;
+  onOpenLiveFeed: () => void;
 };
 
-type PreviewFailure =
-  | {
-      kind: 'fetch_failed';
-      message: string;
-      status?: number;
-      statusText?: string;
-    }
-  | {
-      kind: 'parse_failed';
-      message: string;
-    };
-
-type PreviewStatePill = {
+type StatePill = {
   label: string;
   className: string;
 };
 
-function formatPreviewTime(value?: string): string | undefined {
-  if (!value) {
-    return undefined;
-  }
-
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  return date.toLocaleString(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  });
-}
-
-function renderPreviewCard(
-  item: FeedPreviewItem,
-  index: number,
-  fallbackSource?: string
-) {
-  const meta: string[] = [];
-  const source = item.source || fallbackSource;
-  const publishedAt = formatPreviewTime(item.publishedAt);
-
-  if (source) {
-    meta.push(source);
-  }
-
-  if (publishedAt) {
-    meta.push(publishedAt);
-  }
-
-  return (
-    <article key={item.id || `${item.title}-${index}`} className="preview-card">
-      {item.imageUrl ? (
-        <div className="preview-card-media">
-          <img src={item.imageUrl} alt="" loading="lazy" />
-        </div>
-      ) : (
-        <div className="preview-card-media preview-card-media--placeholder">
-          <span>{item.title.charAt(0).toUpperCase()}</span>
-        </div>
-      )}
-
-      <div className="preview-card-body">
-        {meta.length ? (
-          <div className="preview-card-meta">
-            {meta.map((value) => (
-              <span key={value}>{value}</span>
-            ))}
-          </div>
-        ) : null}
-
-        <h4>{item.title}</h4>
-
-        {item.summary ? <p>{item.summary}</p> : null}
-      </div>
-
-      {item.link ? (
-        <div className="preview-card-actions">
-          <a
-            href={item.link}
-            target="_blank"
-            rel="noreferrer"
-            className="preview-card-link"
-          >
-            <ExternalLink size={15} />
-            <span>Open item</span>
-          </a>
-        </div>
-      ) : null}
-    </article>
-  );
-}
-
-function getPreviewStatePill(options: {
+function getStatePill(options: {
   mode: FeedCardsPreviewProps['mode'];
   isLoading: boolean;
-  preview: FeedPreviewResult | null;
-  failure: PreviewFailure | null;
-}): PreviewStatePill {
-  const { mode, isLoading, preview, failure } = options;
+  itemCount: number;
+  failure: LiveFeedFailure | null;
+  isEmpty: boolean;
+}): StatePill {
+  const { mode, isLoading, itemCount, failure, isEmpty } = options;
 
   if (mode === 'pending_input') {
     return {
-      label: 'Waiting for feed',
+      label: 'Waiting',
       className: 'preview-state-pill preview-state-pill--pending',
     };
   }
@@ -150,32 +69,23 @@ function getPreviewStatePill(options: {
     };
   }
 
-  if (failure?.kind === 'parse_failed' || preview?.state === 'parse_failed') {
+  if (failure?.kind === 'parse_failed') {
     return {
       label: 'Parse failed',
       className: 'preview-state-pill preview-state-pill--warning',
     };
   }
 
-  if (preview?.state === 'empty') {
+  if (isEmpty) {
     return {
-      label: 'No recent items',
+      label: 'Empty',
       className: 'preview-state-pill preview-state-pill--empty',
     };
   }
 
-  if (preview) {
-    return {
-      label: `${preview.snapshot.items.length} item${
-        preview.snapshot.items.length === 1 ? '' : 's'
-      }`,
-      className: 'preview-state-pill preview-state-pill--success',
-    };
-  }
-
   return {
-    label: 'Ready',
-    className: 'preview-state-pill preview-state-pill--pending',
+    label: `${itemCount} item${itemCount === 1 ? '' : 's'}`,
+    className: 'preview-state-pill preview-state-pill--success',
   };
 }
 
@@ -184,247 +94,205 @@ export default function FeedCardsPreview({
   mode,
   unavailableReason,
   hasPendingChanges = false,
+  route,
+  feedLabel,
+  onSaveFeed,
+  onOpenLiveFeed,
 }: FeedCardsPreviewProps) {
-  const [preview, setPreview] = useState<FeedPreviewResult | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [failure, setFailure] = useState<PreviewFailure | null>(null);
-  const [reloadCount, setReloadCount] = useState(0);
-
-  const debouncedFeedUrl = useDebouncedValue(feedUrl, 220);
+  const [copied, setCopied] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const { preview, isLoading, failure, items } = useLiveFeedPreview({
+    feedUrl,
+    mode,
+  });
 
   useEffect(() => {
-    if (mode !== 'ready' || !debouncedFeedUrl) {
-      setPreview(null);
-      setFailure(null);
-      setIsLoading(false);
+    setCopied(false);
+    setSaved(false);
+  }, [feedUrl]);
+
+  async function handleCopyFeedUrl() {
+    if (!feedUrl) {
       return;
     }
 
-    const controller = new AbortController();
-    let isCancelled = false;
+    await navigator.clipboard.writeText(feedUrl);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1600);
+  }
 
-    async function loadPreview() {
-      setIsLoading(true);
-      setFailure(null);
-
-      try {
-        const result = await fetchFeedPreview(debouncedFeedUrl, {
-          signal: controller.signal,
-        });
-
-        if (isCancelled) {
-          return;
-        }
-
-        setPreview(result);
-        if (result.state === 'parse_failed') {
-          setFailure({
-            kind: 'parse_failed',
-            message:
-              result.note ||
-              'The feed responded, but the preview parser could not build compact cards from the response.',
-          });
-        }
-      } catch (unknownError) {
-        if (
-          isCancelled ||
-          (unknownError instanceof DOMException && unknownError.name === 'AbortError')
-        ) {
-          return;
-        }
-
-        if (unknownError instanceof FeedPreviewRequestError) {
-          setFailure({
-            kind: 'fetch_failed',
-            message: unknownError.message,
-            status: unknownError.status,
-            statusText: unknownError.statusText,
-          });
-        } else {
-          setFailure({
-            kind: 'fetch_failed',
-            message:
-              unknownError instanceof Error
-                ? unknownError.message
-                : 'Unable to load the generated feed preview.',
-          });
-        }
-
-        setPreview(null);
-      } finally {
-        if (!isCancelled) {
-          setIsLoading(false);
-        }
-      }
+  function handleSaveFeed() {
+    if (!route || !feedUrl) {
+      return;
     }
 
-    void loadPreview();
+    onSaveFeed({
+      label: route.title || feedLabel || preview?.snapshot.feedTitle || 'Saved feed',
+      url: feedUrl,
+      routeId: route.id,
+    });
 
-    return () => {
-      isCancelled = true;
-      controller.abort();
-    };
-  }, [debouncedFeedUrl, mode, reloadCount]);
+    setSaved(true);
+    window.setTimeout(() => setSaved(false), 1800);
+  }
 
-  const items = preview?.snapshot.items ?? [];
-  const visibleItems = items.slice(0, 3);
-  const statePill = getPreviewStatePill({
+  const resolvedFeedTitle = useMemo(
+    () => preview?.snapshot.feedTitle || feedLabel || route?.title || 'Live feed',
+    [feedLabel, preview?.snapshot.feedTitle, route?.title]
+  );
+  const isEmpty = preview?.state === 'empty';
+  const statePill = getStatePill({
     mode,
     isLoading,
-    preview,
+    itemCount: items.length,
     failure,
+    isEmpty,
   });
 
+  if (mode === 'pending_input') {
+    return (
+      <StateBlock
+        compact
+        title="Live feed waits for applied inputs"
+        message="Apply the route values first, then open the live feed."
+      />
+    );
+  }
+
+  if (mode === 'unsupported') {
+    return (
+      <StateBlock
+        compact
+        variant="error"
+        title="Live feed unavailable"
+        message={
+          unavailableReason ||
+          'This route cannot load a live feed on the current instance.'
+        }
+      />
+    );
+  }
+
   return (
-    <section className="preview-stage">
-      <div className="preview-stage-header">
-        <div className="section-heading">
-          <span className="panel-eyebrow">Recent items</span>
-          <h3>In-page feed preview</h3>
+    <section className="feed-launcher">
+      <div className="feed-launcher-entry">
+        <div className="feed-launcher-mark">
+          <div className="feed-launcher-brand">
+            <BrandMark size={54} className="brand-mark" />
+          </div>
+          <div className="feed-launcher-mark-icon" aria-hidden="true">
+            <RadioTower size={20} />
+          </div>
+        </div>
+
+        <div className="feed-launcher-copy">
+          <span className="panel-eyebrow">Live feed ready</span>
+          <h4>{resolvedFeedTitle}</h4>
           <p>
             {hasPendingChanges
-              ? 'Preview is showing the last applied route values. Apply the current draft to refresh these cards.'
-              : 'Verify the first items here before you save or open the raw feed.'}
+              ? 'The last applied feed is ready. Apply the latest inputs when you want to refresh it.'
+              : 'Enter the dedicated live-feed view to browse the full feed.'}
           </p>
         </div>
 
-        <div className="preview-stage-toolbar">
+        <div className="feed-launcher-meta">
           <span className={statePill.className}>{statePill.label}</span>
+          {preview?.status ? (
+            <span className="badge subtle">Status {preview.status}</span>
+          ) : null}
+          {preview?.snapshot.homeUrl ? (
+            <span className="badge subtle">Feed source available</span>
+          ) : null}
+        </div>
 
+        <button
+          type="button"
+          className="primary-button feed-launcher-button"
+          onClick={onOpenLiveFeed}
+          disabled={!feedUrl}
+        >
+          <span>Open live feed</span>
+          <ArrowRight size={16} />
+        </button>
+      </div>
+
+      <div className="feed-actions-card">
+        <div className="section-title-row">
+          <div className="section-heading">
+            <span className="panel-eyebrow">Feed URL & actions</span>
+            <h4>{resolvedFeedTitle}</h4>
+            <p>Keep the current feed nearby for saving, copying, or opening.</p>
+          </div>
+
+          <div className="preview-meta">
+            <span className="badge subtle">
+              {items.length} item{items.length === 1 ? '' : 's'}
+            </span>
+            {route ? <span className="badge">{route.routePath}</span> : null}
+          </div>
+        </div>
+
+        <div className="feed-actions-url" title={feedUrl}>
+          {feedUrl || 'Feed URL appears after apply'}
+        </div>
+
+        <div className="feed-actions-row">
           <button
             type="button"
             className="ghost-button"
-            onClick={() => setReloadCount((current) => current + 1)}
-            disabled={mode !== 'ready' || !feedUrl || isLoading}
+            onClick={() => void handleCopyFeedUrl()}
+            disabled={!feedUrl}
           >
-            {isLoading ? <LoaderCircle size={16} className="spin" /> : <RefreshCw size={16} />}
-            <span>{isLoading ? 'Refreshing...' : 'Retry preview'}</span>
+            {copied ? <Check size={16} /> : <Copy size={16} />}
+            <span>{copied ? 'Copied' : 'Copy URL'}</span>
           </button>
 
-          {feedUrl ? (
-            <a
-              href={feedUrl}
-              target="_blank"
-              rel="noreferrer"
+          <a
+            href={feedUrl || '#'}
+            target="_blank"
+            rel="noreferrer"
+            className={`ghost-button ${!feedUrl ? 'disabled' : ''}`}
+          >
+            <ExternalLink size={16} />
+            <span>Open raw feed</span>
+          </a>
+
+          {route ? (
+            <button
+              type="button"
               className="ghost-button"
+              onClick={handleSaveFeed}
+              disabled={!feedUrl}
             >
-              <ExternalLink size={16} />
-              <span>Open raw feed</span>
-            </a>
+              {saved ? <Check size={16} /> : <Save size={16} />}
+              <span>{saved ? 'Saved' : 'Save feed'}</span>
+            </button>
           ) : null}
         </div>
+
+        {failure ? (
+          <StateBlock
+            compact
+            variant={failure.kind === 'fetch_failed' ? 'error' : 'info'}
+            title={
+              failure.kind === 'fetch_failed'
+                ? 'Live feed needs attention'
+                : 'Live feed needs a raw fallback'
+            }
+            message={failure.message}
+            action={
+              <button
+                type="button"
+                className="ghost-button"
+                onClick={onOpenLiveFeed}
+                disabled={!feedUrl}
+              >
+                Open live feed
+              </button>
+            }
+          />
+        ) : null}
       </div>
-
-      {mode === 'pending_input' ? (
-        <StateBlock
-          compact
-          title="Preview waits for a valid feed"
-          message="Complete the required route parameters and apply them to load preview cards here."
-        />
-      ) : null}
-
-      {mode === 'unsupported' ? (
-        <StateBlock
-          compact
-          variant="error"
-          title="Preview unavailable"
-          message={
-            unavailableReason ||
-            'This route cannot generate a preview on the current instance configuration.'
-          }
-          action={
-            <span className="inline-state-note">
-              <AlertCircle size={14} />
-              <span>Adjust the route support mode or try a route with lighter setup requirements.</span>
-            </span>
-          }
-        />
-      ) : null}
-
-      {mode === 'ready' && isLoading && !preview ? (
-        <div className="preview-card-grid preview-card-grid--loading" aria-hidden="true">
-          {Array.from({ length: 3 }).map((_, index) => (
-            <div key={index} className="preview-card preview-card--skeleton" />
-          ))}
-        </div>
-      ) : null}
-
-      {mode === 'ready' && failure?.kind === 'fetch_failed' ? (
-        <StateBlock
-          compact
-          variant="error"
-          title="Preview fetch failed"
-          message={failure.message}
-          action={
-            <div className="preview-meta">
-              {typeof failure.status === 'number' ? (
-                <span className="badge danger-badge">
-                  Status {failure.status}
-                  {failure.statusText ? ` ${failure.statusText}` : ''}
-                </span>
-              ) : null}
-              <span className="inline-state-note">
-                <AlertCircle size={14} />
-                <span>Retry the preview or fall back to the raw feed only if you need to inspect the response directly.</span>
-              </span>
-            </div>
-          }
-        />
-      ) : null}
-
-      {mode === 'ready' && failure?.kind === 'parse_failed' ? (
-        <StateBlock
-          compact
-          variant="info"
-          title="Preview parse failed"
-          message={failure.message}
-          action={
-            <span className="inline-state-note">
-              <AlertCircle size={14} />
-              <span>Use the raw feed or debug panel for deeper inspection.</span>
-            </span>
-          }
-        />
-      ) : null}
-
-      {mode === 'ready' && preview?.state === 'empty' && !failure ? (
-        <StateBlock
-          compact
-          variant="info"
-          title="Preview is empty"
-          message="The feed responded successfully, but there were no recent items to render as cards."
-        />
-      ) : null}
-
-      {mode === 'ready' && preview ? (
-        <div className="preview-stage-body">
-          <div className="preview-stage-summary">
-            <div className="preview-stage-copy">
-              <strong>{preview.snapshot.feedTitle || 'Generated feed'}</strong>
-              {preview.snapshot.feedDescription ? (
-                <p>{preview.snapshot.feedDescription}</p>
-              ) : null}
-            </div>
-
-            <div className="preview-meta">
-              <span className="badge subtle">Status {preview.status}</span>
-              <span className="badge">
-                {preview.state === 'parse_failed'
-                  ? 'Parse failed'
-                  : `${items.length} item${items.length === 1 ? '' : 's'}`}
-              </span>
-            </div>
-          </div>
-
-          {visibleItems.length ? (
-            <div className="preview-card-grid">
-              {visibleItems.map((item, index) =>
-                renderPreviewCard(item, index, preview.snapshot.feedTitle)
-              )}
-            </div>
-          ) : null}
-        </div>
-      ) : null}
     </section>
   );
 }

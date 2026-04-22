@@ -1,5 +1,6 @@
-import { Search, X } from 'lucide-react';
+import { X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import type { CSSProperties } from 'react';
 import type { KeyboardEvent } from 'react';
 import type { RouteItem } from '../types';
 import type { RouteSupportSummary } from '../utils/routeSupport';
@@ -16,6 +17,9 @@ type SearchBarProps = {
 };
 
 const MAX_RESULTS = 8;
+const DROPDOWN_GUTTER = 14;
+const DROPDOWN_MIN_SHELL_HEIGHT = 220;
+const DROPDOWN_CHROME_HEIGHT = 64;
 
 export default function SearchBar({
   query,
@@ -28,6 +32,8 @@ export default function SearchBar({
 }: SearchBarProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
+  const [dropdownDirection, setDropdownDirection] = useState<'down' | 'up'>('down');
+  const [dropdownMaxHeight, setDropdownMaxHeight] = useState<number>(420);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
@@ -57,6 +63,41 @@ export default function SearchBar({
     };
   }, []);
 
+  useEffect(() => {
+    if (!isOpen || !inputRef.current) {
+      return;
+    }
+
+    function updateDropdownPlacement() {
+      const input = inputRef.current;
+
+      if (!input) {
+        return;
+      }
+
+      const rect = input.getBoundingClientRect();
+      const viewportHeight = window.innerHeight;
+      const availableBelow = Math.max(0, viewportHeight - rect.bottom - DROPDOWN_GUTTER);
+      const availableAbove = Math.max(0, rect.top - DROPDOWN_GUTTER);
+      const shouldOpenUp =
+        availableBelow < DROPDOWN_MIN_SHELL_HEIGHT && availableAbove > availableBelow;
+      const available = shouldOpenUp ? availableAbove : availableBelow;
+
+      setDropdownDirection(shouldOpenUp ? 'up' : 'down');
+      setDropdownMaxHeight(Math.max(0, Math.min(420, available)));
+    }
+
+    updateDropdownPlacement();
+
+    window.addEventListener('resize', updateDropdownPlacement);
+    window.addEventListener('scroll', updateDropdownPlacement, true);
+
+    return () => {
+      window.removeEventListener('resize', updateDropdownPlacement);
+      window.removeEventListener('scroll', updateDropdownPlacement, true);
+    };
+  }, [isOpen, visibleResults.length]);
+
   function handleFocus() {
     setIsOpen(true);
   }
@@ -69,7 +110,6 @@ export default function SearchBar({
 
   function handleSelect(route: RouteItem) {
     onSelectRoute(route);
-    onQueryChange(route.title);
     setIsOpen(false);
   }
 
@@ -107,10 +147,20 @@ export default function SearchBar({
     }
   }
 
+  const dropdownStyle: CSSProperties = {
+    maxHeight: dropdownMaxHeight,
+    ...(dropdownDirection === 'up'
+      ? { top: 'auto', bottom: 'calc(100% + 10px)' }
+      : { top: 'calc(100% + 10px)', bottom: 'auto' }),
+  };
+
+  const resultsListStyle: CSSProperties = {
+    maxHeight: Math.max(0, dropdownMaxHeight - DROPDOWN_CHROME_HEIGHT),
+  };
+
   return (
     <div className="searchbar" ref={rootRef}>
       <div className="searchbar-input-wrap">
-        <Search className="searchbar-icon" size={18} />
         <input
           ref={inputRef}
           className="searchbar-input"
@@ -139,7 +189,15 @@ export default function SearchBar({
       </div>
 
       {isOpen ? (
-        <div className="searchbar-dropdown">
+        <div
+          className={[
+            'searchbar-dropdown',
+            dropdownDirection === 'up' ? 'searchbar-dropdown--upward' : '',
+          ]
+            .filter(Boolean)
+            .join(' ')}
+          style={dropdownStyle}
+        >
           <div className="searchbar-dropdown-header">
             <span>
               {isLoading
@@ -151,7 +209,7 @@ export default function SearchBar({
           </div>
 
           {visibleResults.length ? (
-            <ul className="searchbar-results" role="listbox">
+            <ul className="searchbar-results" role="listbox" style={resultsListStyle}>
               {visibleResults.map((route, index) => {
                 const isActive = index === activeIndex;
                 const isSelected = route.id === selectedRouteId;

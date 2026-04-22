@@ -8,7 +8,7 @@ type SupportFilterProps = {
 
 const FILTER_OPTIONS: Array<{ value: RouteSupportFilter; label: string }> = [
   { value: 'all', label: 'All support levels' },
-  { value: 'ready', label: 'Ready to use' },
+  { value: 'ready', label: 'Ready to use (+ optional)' },
   { value: 'recommended', label: 'Optional setup recommended' },
   { value: 'required', label: 'Required API or config' },
   { value: 'advanced', label: 'Advanced setup required' },
