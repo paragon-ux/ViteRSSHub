@@ -13,6 +13,7 @@ import {
 } from '../hooks/useFeedComposer';
 import type { RouteItem } from '../types';
 import type { RouteSupportSummary } from '../utils/routeSupport';
+import ParameterGuidance from './ParameterGuidance';
 import StateBlock from './StateBlock';
 
 type FeedBuilderProps = {
@@ -168,32 +169,39 @@ export default function FeedBuilder({
               ) : null}
 
               {composer.requiredParams.length ? (
-                <div className="param-grid">
-                  {currentParamPage.map((param) => {
-                    const helpText = getParamHelp(route, param.name);
+                <>
+                  <ParameterGuidance
+                    route={route}
+                    paramNames={composer.requiredParams.map((param) => param.name)}
+                  />
 
-                    return (
-                      <label key={param.name} className="field-group field-group--required">
-                        <span className="field-label">
-                          {getParamLabel(param.name)}
-                          <span className="required-dot">*</span>
-                        </span>
+                  <div className="param-grid">
+                    {currentParamPage.map((param) => {
+                      const helpText = getParamHelp(route, param.name);
 
-                        <input
-                          className="text-input"
-                          type="text"
-                          value={composer.paramValues[param.name] ?? ''}
-                          onChange={(event) =>
-                            composer.setParamValue(param.name, event.target.value)
-                          }
-                          placeholder={getParamPlaceholder(route, param.name, true)}
-                        />
+                      return (
+                        <label key={param.name} className="field-group field-group--required">
+                          <span className="field-label">
+                            {getParamLabel(param.name)}
+                            <span className="required-dot">*</span>
+                          </span>
 
-                        {helpText ? <span className="field-help">{helpText}</span> : null}
-                      </label>
-                    );
-                  })}
-                </div>
+                          <input
+                            className="text-input"
+                            type="text"
+                            value={composer.paramValues[param.name] ?? ''}
+                            onChange={(event) =>
+                              composer.setParamValue(param.name, event.target.value)
+                            }
+                            placeholder={getParamPlaceholder(route, param.name, true)}
+                          />
+
+                          {helpText ? <span className="field-help">{helpText}</span> : null}
+                        </label>
+                      );
+                    })}
+                  </div>
+                </>
               ) : (
                 <div className="builder-empty-note">
                   <p>This route does not need required path parameters. Apply once to continue.</p>

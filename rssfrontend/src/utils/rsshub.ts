@@ -1,13 +1,15 @@
 import type {
   FeedFormat,
   RouteDefinition,
+  RouteDocParameters,
   RouteItem,
   RouteNamespace,
   RouteParameter,
   RoutesCatalog,
 } from '../types';
 
-const PARAM_REGEX = /:([A-Za-z0-9_]+)(\?)?/g;
+const PARAM_REGEX = /:([A-Za-z0-9_]+)(?:\{[^}]+\})?(\?)?/g;
+const PARAM_SEGMENT_REGEX = /^:([A-Za-z0-9_]+)(?:\{[^}]+\})?(\?)?$/;
 
 export function normalizeBaseUrl(value: string): string {
   return value.trim().replace(/\/+$/, '');
@@ -64,6 +66,14 @@ function asStringArray(value: unknown): string[] {
   }
 
   return [];
+}
+
+function asDocParameters(value: unknown): RouteDocParameters | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return undefined;
+  }
+
+  return value as RouteDocParameters;
 }
 
 function getNamespaceTitle(namespaceKey: string, namespaceValue: RouteNamespace): string {
@@ -133,6 +143,8 @@ export function flattenRoutesCatalog(catalog: RoutesCatalog): RouteItem[] {
       items.push({
         id: `${namespaceKey}:${routePath}`,
         namespace: namespaceKey,
+        sourceTitle: namespaceTitle,
+        sourceDescription: namespaceDescription,
         title,
         description,
         routePath,
@@ -141,6 +153,9 @@ export function flattenRoutesCatalog(catalog: RoutesCatalog): RouteItem[] {
         params: extractRouteParams(routePath),
         categories: categories.length ? categories : namespaceCategories,
         docsUrl: asTrimmedString(routeMeta.url) || asTrimmedString(namespaceValue.url),
+        docExample: firstString(routeMeta.example),
+        docParameters: asDocParameters(routeMeta.parameters),
+        docFeatures: routeMeta.features,
       });
     }
   }
@@ -160,7 +175,7 @@ export function applyRouteParams(
   const builtSegments: string[] = [];
 
   for (const segment of segments) {
-    const match = segment.match(/^:([A-Za-z0-9_]+)(\?)?$/);
+    const match = segment.match(PARAM_SEGMENT_REGEX);
 
     if (!match) {
       builtSegments.push(segment);

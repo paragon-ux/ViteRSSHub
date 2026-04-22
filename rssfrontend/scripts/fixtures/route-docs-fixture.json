@@ -1,0 +1,86 @@
+[
+  {
+    "namespace": "apnews",
+    "sourceTitle": "AP News",
+    "title": "Mobile",
+    "routePath": "/apnews/mobile/:path{.+}?",
+    "example": "/apnews/mobile/ap-top-news",
+    "parameters": {
+      "path": {
+        "description": "Corresponding path from AP News website",
+        "default": "ap-top-news"
+      }
+    }
+  },
+  {
+    "namespace": "30secondsofcode",
+    "sourceTitle": "30 Seconds of Code",
+    "title": "Category",
+    "routePath": "/30secondsofcode/category/:category?/:subCategory?",
+    "example": "/category/css/interactivity",
+    "parameters": {
+      "category": {
+        "description": "Main Category. For Complete list visit site https://www.30secondsofcode.org/collections/p/1/",
+        "options": [
+          {
+            "value": "js",
+            "label": "Javascript"
+          },
+          {
+            "value": "css",
+            "label": "CSS"
+          },
+          {
+            "value": "algorithm",
+            "label": "JavaScript Algorithms"
+          },
+          {
+            "value": "react",
+            "label": "React"
+          }
+        ]
+      },
+      "subCategory": {
+        "description": "Filter within Category. Visit Individual Category site for subCategories"
+      }
+    }
+  },
+  {
+    "namespace": "daily",
+    "sourceTitle": "daily.dev",
+    "title": "Discussed",
+    "routePath": "/daily/discussed/:period?/:innerSharedContent?/:dateSort?",
+    "example": "/daily/discussed/30",
+    "parameters": {
+      "period": {
+        "description": "Period of Lookup",
+        "default": "7"
+      },
+      "innerSharedContent": {
+        "description": "Whether to Fetch inner Shared Posts instead of original",
+        "default": "false"
+      },
+      "dateSort": {
+        "description": "Sort posts by publication date instead of popularity",
+        "default": "true"
+      }
+    }
+  },
+  {
+    "namespace": "binance",
+    "sourceTitle": "Binance",
+    "title": "Announcements",
+    "routePath": "/binance/announcement/:type?/:lang?",
+    "example": "/binance/announcement/new-cryptocurrency-listing",
+    "parameters": {
+      "type": {
+        "description": "Announcement type. Omit for all categories.",
+        "default": "all"
+      },
+      "lang": {
+        "description": "Language code for the messages page.",
+        "default": "zh-CN"
+      }
+    }
+  }
+]

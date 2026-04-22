@@ -3,9 +3,36 @@ export type RouteParameter = {
   required: boolean;
 };
 
+export type RouteDocOption = {
+  value: string;
+  label?: string;
+};
+
+export type RouteDocParameterDefinition = {
+  description?: string;
+  default?: string;
+  options?: RouteDocOption[];
+};
+
+export type RouteDocParameter = string | RouteDocParameterDefinition;
+
+export type RouteDocParameters = Record<string, RouteDocParameter>;
+
+export type RouteFeatureConfigRequirement = {
+  name?: string;
+  optional?: boolean;
+  description?: string;
+};
+
+export type RouteFeatureDefinition = {
+  requireConfig?: boolean | RouteFeatureConfigRequirement[];
+};
+
 export type RouteItem = {
   id: string;
   namespace: string;
+  sourceTitle: string;
+  sourceDescription?: string;
   title: string;
   description: string;
   routePath: string;
@@ -14,6 +41,9 @@ export type RouteItem = {
   params: RouteParameter[];
   categories: string[];
   docsUrl?: string;
+  docExample?: string;
+  docParameters?: RouteDocParameters;
+  docFeatures?: RouteFeatureDefinition;
 };
 
 export type RouteSupportFilter =
@@ -37,6 +67,13 @@ export type RouteDefinition = {
   radar?: string;
   maintainers?: string[];
   categories?: string[];
+  example?: string;
+  parameters?: RouteDocParameters;
+  features?: RouteFeatureDefinition;
+  test?: unknown;
+  topFeeds?: unknown;
+  location?: string;
+  heat?: number;
 };
 
 export type RouteNamespace = {

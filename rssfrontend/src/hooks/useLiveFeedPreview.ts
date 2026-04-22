@@ -106,6 +106,7 @@ export function useLiveFeedPreview(options: {
   }, [debouncedFeedUrl, mode, reloadCount]);
 
   const items = useMemo(() => preview?.snapshot.items ?? [], [preview?.snapshot.items]);
+  const totalItems = preview?.snapshot.totalItems ?? items.length;
   const hasRenderableFeed = preview?.state === 'success' && items.length > 0 && !failure;
 
   return {
@@ -113,6 +114,8 @@ export function useLiveFeedPreview(options: {
     isLoading,
     failure,
     items,
+    totalItems,
+    shownItems: items.length,
     hasRenderableFeed,
     refresh: () => setReloadCount((current) => current + 1),
   };

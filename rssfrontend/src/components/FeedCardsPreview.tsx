@@ -32,14 +32,25 @@ type StatePill = {
   className: string;
 };
 
+function formatFeedCount(options: { totalItems: number; shownItems: number }): string {
+  const { totalItems, shownItems } = options;
+
+  if (totalItems > shownItems) {
+    return `Showing ${shownItems} of ${totalItems}`;
+  }
+
+  return `${totalItems} item${totalItems === 1 ? '' : 's'} in feed`;
+}
+
 function getStatePill(options: {
   mode: FeedCardsPreviewProps['mode'];
   isLoading: boolean;
-  itemCount: number;
+  totalItems: number;
+  shownItems: number;
   failure: LiveFeedFailure | null;
   isEmpty: boolean;
 }): StatePill {
-  const { mode, isLoading, itemCount, failure, isEmpty } = options;
+  const { mode, isLoading, totalItems, shownItems, failure, isEmpty } = options;
 
   if (mode === 'pending_input') {
     return {
@@ -84,7 +95,7 @@ function getStatePill(options: {
   }
 
   return {
-    label: `${itemCount} item${itemCount === 1 ? '' : 's'}`,
+    label: formatFeedCount({ totalItems, shownItems }),
     className: 'preview-state-pill preview-state-pill--success',
   };
 }
@@ -101,7 +112,7 @@ export default function FeedCardsPreview({
 }: FeedCardsPreviewProps) {
   const [copied, setCopied] = useState(false);
   const [saved, setSaved] = useState(false);
-  const { preview, isLoading, failure, items } = useLiveFeedPreview({
+  const { preview, isLoading, failure, totalItems, shownItems } = useLiveFeedPreview({
     feedUrl,
     mode,
   });
@@ -144,7 +155,8 @@ export default function FeedCardsPreview({
   const statePill = getStatePill({
     mode,
     isLoading,
-    itemCount: items.length,
+    totalItems,
+    shownItems,
     failure,
     isEmpty,
   });
@@ -225,9 +237,7 @@ export default function FeedCardsPreview({
           </div>
 
           <div className="preview-meta">
-            <span className="badge subtle">
-              {items.length} item{items.length === 1 ? '' : 's'}
-            </span>
+            <span className="badge subtle">{formatFeedCount({ totalItems, shownItems })}</span>
             {route ? <span className="badge">{route.routePath}</span> : null}
           </div>
         </div>

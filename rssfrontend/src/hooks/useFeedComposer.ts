@@ -5,6 +5,10 @@ import type {
   RouteItem,
   RouteParameter,
 } from '../types';
+import {
+  getRouteParamHelpText,
+  getRouteParamPlaceholderText,
+} from '../utils/routeDocs';
 import { buildFeedUrl } from '../utils/rsshub';
 import {
   buildTwitterSourceUrl,
@@ -110,38 +114,7 @@ export function getParamHelp(
   route: RouteItem | undefined,
   paramName: string
 ): string | undefined {
-  if (!route) {
-    return undefined;
-  }
-
-  if (route.routePath.startsWith('/youtube/user/') && paramName === 'username') {
-    return 'Use the YouTube user handle, for example @OpenAI.';
-  }
-
-  if (route.routePath.startsWith('/youtube/user/') && paramName === 'routeParams') {
-    return 'Optional advanced path options, for example embed=false&filterShorts=false';
-  }
-
-  if (route.routePath.startsWith('/twitter/user/')) {
-    if (paramName === 'id' || paramName === 'username' || paramName === 'handle') {
-      return 'Public Twitter/X username for Nitter, for example elonmusk.';
-    }
-  }
-
-  if (
-    route.routePath.startsWith('/twitter/keyword/') ||
-    route.routePath.startsWith('/twitter/search/')
-  ) {
-    if (paramName === 'keyword' || paramName === 'query' || paramName === 'q') {
-      return 'Keyword or query for RSSHub Twitter/X search handling. This route does not map to a Nitter profile RSS URL.';
-    }
-  }
-
-  if (paramName === 'routeParams') {
-    return 'Optional advanced route parameters.';
-  }
-
-  return undefined;
+  return getRouteParamHelpText(route, paramName);
 }
 
 export function getParamPlaceholder(
@@ -149,34 +122,7 @@ export function getParamPlaceholder(
   paramName: string,
   required: boolean
 ): string {
-  if (route?.routePath.startsWith('/youtube/user/') && paramName === 'username') {
-    return 'Example: @OpenAI';
-  }
-
-  if (route?.routePath.startsWith('/youtube/user/') && paramName === 'routeParams') {
-    return 'Optional, for example embed=false&filterShorts=false';
-  }
-
-  if (route?.routePath.startsWith('/twitter/user/')) {
-    if (paramName === 'id' || paramName === 'username' || paramName === 'handle') {
-      return 'Example: elonmusk';
-    }
-  }
-
-  if (
-    route?.routePath.startsWith('/twitter/keyword/') ||
-    route?.routePath.startsWith('/twitter/search/')
-  ) {
-    if (paramName === 'keyword' || paramName === 'query' || paramName === 'q') {
-      return 'Example: OpenAI';
-    }
-  }
-
-  if (paramName === 'routeParams') {
-    return 'Optional advanced route parameters';
-  }
-
-  return `Enter ${paramName}${required ? '' : ' (optional)'}`;
+  return getRouteParamPlaceholderText(route, paramName, required);
 }
 
 export function useFeedComposer(options: {

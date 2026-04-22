@@ -6,6 +6,7 @@ import {
   getParamLabel,
   getParamPlaceholder,
 } from '../hooks/useFeedComposer';
+import ParameterGuidance from './ParameterGuidance';
 import StateBlock from './StateBlock';
 
 type AdvancedRoutePanelProps = {
@@ -113,6 +114,12 @@ export default function AdvancedRoutePanel({
                 <h3>Optional path parameters</h3>
                 <p>Only fill these if the route docs or your use case call for them.</p>
               </div>
+
+              <ParameterGuidance
+                route={route}
+                paramNames={composer.optionalParams.map((param) => param.name)}
+                title="Documented optional values"
+              />
 
               <div className="optional-param-grid">
                 {composer.optionalParams.map((param) => {

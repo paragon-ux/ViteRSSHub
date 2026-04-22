@@ -15,6 +15,7 @@ export type FeedPreviewSnapshot = {
   feedTitle?: string;
   feedDescription?: string;
   homeUrl?: string;
+  totalItems: number;
   items: FeedPreviewItem[];
 };
 
@@ -347,7 +348,7 @@ function normalizeJsonItem(
 function parseJsonPreview(body: unknown): FeedPreviewSnapshot {
   const record = asRecord(body);
   if (!record) {
-    return { items: [] };
+    return { totalItems: 0, items: [] };
   }
 
   const channelItems = getNestedValue(record, ['channel', 'item']);
@@ -376,14 +377,16 @@ function parseJsonPreview(body: unknown): FeedPreviewSnapshot {
     getNestedValue(record, ['channel', 'link'])
   );
 
+  const items = itemsValue
+    .map((item, index) => normalizeJsonItem(item, index, feedTitle))
+    .filter((item): item is FeedPreviewItem => Boolean(item));
+
   return {
     feedTitle,
     feedDescription,
     homeUrl,
-    items: itemsValue
-      .map((item, index) => normalizeJsonItem(item, index, feedTitle))
-      .filter((item): item is FeedPreviewItem => Boolean(item))
-      .slice(0, 8),
+    totalItems: items.length,
+    items,
   };
 }
 
@@ -467,31 +470,32 @@ function parseXmlPreview(rawText: string): FeedPreviewSnapshot | null {
   const nodes = Array.from(document.getElementsByTagName('item'));
   const entries = nodes.length ? nodes : Array.from(document.getElementsByTagName('entry'));
 
+  const items = entries.map((entry, index) => {
+    const title = getXmlText(entry, ['title']) || `Item ${index + 1}`;
+    const summary = summarizeText(
+      getXmlText(entry, ['description', 'content:encoded', 'summary', 'content'])
+    );
+
+    return {
+      id:
+        getXmlText(entry, ['guid', 'id']) ||
+        getXmlLink(entry) ||
+        `${title}-${index}`,
+      title,
+      link: getXmlLink(entry),
+      source: getXmlText(entry, ['author', 'dc:creator']) || feedTitle,
+      publishedAt: getXmlText(entry, ['pubDate', 'published', 'updated']),
+      summary,
+      imageUrl: getXmlImage(entry),
+    };
+  });
+
   return {
     feedTitle,
     feedDescription,
     homeUrl,
-    items: entries
-      .map((entry, index) => {
-        const title = getXmlText(entry, ['title']) || `Item ${index + 1}`;
-        const summary = summarizeText(
-          getXmlText(entry, ['description', 'content:encoded', 'summary', 'content'])
-        );
-
-        return {
-          id:
-            getXmlText(entry, ['guid', 'id']) ||
-            getXmlLink(entry) ||
-            `${title}-${index}`,
-          title,
-          link: getXmlLink(entry),
-          source: getXmlText(entry, ['author', 'dc:creator']) || feedTitle,
-          publishedAt: getXmlText(entry, ['pubDate', 'published', 'updated']),
-          summary,
-          imageUrl: getXmlImage(entry),
-        };
-      })
-      .slice(0, 8),
+    totalItems: items.length,
+    items,
   };
 }
 
@@ -556,7 +560,7 @@ async function requestPreview(
     rawText,
     sourceUrl,
     requestUrl,
-    snapshot: snapshot ?? { items: [] },
+    snapshot: snapshot ?? { totalItems: 0, items: [] },
     state,
     note,
   };

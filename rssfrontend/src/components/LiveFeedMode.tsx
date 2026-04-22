@@ -35,6 +35,16 @@ type StatePill = {
   className: string;
 };
 
+function formatFeedCount(options: { totalItems: number; shownItems: number }): string {
+  const { totalItems, shownItems } = options;
+
+  if (totalItems > shownItems) {
+    return `Showing ${shownItems} of ${totalItems}`;
+  }
+
+  return `${totalItems} item${totalItems === 1 ? '' : 's'} in feed`;
+}
+
 function formatPreviewTime(value?: string): string | undefined {
   if (!value) {
     return undefined;
@@ -70,11 +80,12 @@ function getItemMeta(item: FeedPreviewItem, fallbackSource?: string): string[] {
 function getStatePill(options: {
   mode: LiveFeedModeProps['mode'];
   isLoading: boolean;
-  itemCount: number;
+  totalItems: number;
+  shownItems: number;
   failure: LiveFeedFailure | null;
   isEmpty: boolean;
 }): StatePill {
-  const { mode, isLoading, itemCount, failure, isEmpty } = options;
+  const { mode, isLoading, totalItems, shownItems, failure, isEmpty } = options;
 
   if (mode === 'pending_input') {
     return {
@@ -119,7 +130,7 @@ function getStatePill(options: {
   }
 
   return {
-    label: `${itemCount} item${itemCount === 1 ? '' : 's'}`,
+    label: formatFeedCount({ totalItems, shownItems }),
     className: 'preview-state-pill preview-state-pill--success',
   };
 }
@@ -137,7 +148,16 @@ export default function LiveFeedMode({
 }: LiveFeedModeProps) {
   const [copied, setCopied] = useState(false);
   const [saved, setSaved] = useState(false);
-  const { preview, isLoading, failure, items, hasRenderableFeed, refresh } =
+  const {
+    preview,
+    isLoading,
+    failure,
+    items,
+    totalItems,
+    shownItems,
+    hasRenderableFeed,
+    refresh,
+  } =
     useLiveFeedPreview({
       feedUrl,
       mode,
@@ -181,7 +201,8 @@ export default function LiveFeedMode({
   const statePill = getStatePill({
     mode,
     isLoading,
-    itemCount: items.length,
+    totalItems,
+    shownItems,
     failure,
     isEmpty,
   });
@@ -360,6 +381,9 @@ export default function LiveFeedMode({
       <div className="live-feed-mode-toolbar">
         <div className="preview-meta">
           <span className={statePill.className}>{statePill.label}</span>
+          {totalItems > shownItems ? (
+            <span className="badge subtle">{formatFeedCount({ totalItems, shownItems })}</span>
+          ) : null}
           {preview?.status ? (
             <span className="badge subtle">Status {preview.status}</span>
           ) : null}
