@@ -6,6 +6,7 @@ import {
   getParamLabel,
   getParamPlaceholder,
 } from '../hooks/useFeedComposer';
+import { getSourceDocsUrl } from '../utils/routeDocs';
 import ParameterGuidance from './ParameterGuidance';
 import StateBlock from './StateBlock';
 
@@ -31,6 +32,7 @@ export default function AdvancedRoutePanel({
 
   const hasOptionalControls =
     composer.optionalParams.length > 0 || composer.queryRows.length > 0;
+  const sourceDocsUrl = getSourceDocsUrl(route);
 
   return (
     <section className="panel panel--secondary utility-mode-panel">
@@ -119,6 +121,14 @@ export default function AdvancedRoutePanel({
                 route={route}
                 paramNames={composer.optionalParams.map((param) => param.name)}
                 title="Documented optional values"
+                actionLink={
+                  sourceDocsUrl
+                    ? {
+                        label: 'Config guide',
+                        href: sourceDocsUrl,
+                      }
+                    : undefined
+                }
               />
 
               <div className="optional-param-grid">

@@ -35,6 +35,8 @@ export type RouteDocumentationCoverage = {
   coordinatedParamNames: string[];
 };
 
+const DEFAULT_SOURCE_DOCS_CATEGORY = 'other';
+
 function asTrimmedString(value: unknown): string | undefined {
   if (typeof value !== 'string') {
     return undefined;
@@ -56,6 +58,16 @@ function collapseWhitespace(value: string): string {
   return value.replace(/\s+/g, ' ').trim();
 }
 
+function slugifyDocsHeading(value: string): string {
+  return collapseWhitespace(value)
+    .normalize('NFKD')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s-]/gu, '')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+}
+
 function normalizeDescription(value?: string): string | undefined {
   if (!value) {
     return undefined;
@@ -63,6 +75,26 @@ function normalizeDescription(value?: string): string | undefined {
 
   const cleaned = collapseWhitespace(stripMarkdown(value));
   return cleaned || undefined;
+}
+
+export function getRouteDocsCategorySlug(route?: RouteItem): string {
+  if (!route?.categories.length) {
+    return DEFAULT_SOURCE_DOCS_CATEGORY;
+  }
+
+  const preferred = route.categories.find((category) => category !== 'popular');
+  return preferred || route.categories[0] || DEFAULT_SOURCE_DOCS_CATEGORY;
+}
+
+export function getSourceDocsUrl(route?: RouteItem): string | undefined {
+  if (!route) {
+    return undefined;
+  }
+
+  const baseUrl = 'https://docs.rsshub.app/deploy/config';
+  const fragment = slugifyDocsHeading(route.sourceTitle);
+
+  return fragment ? `${baseUrl}#${fragment}` : baseUrl;
 }
 
 function normalizeDocOptions(value: unknown): RouteDocOption[] {

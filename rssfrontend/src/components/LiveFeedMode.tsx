@@ -3,7 +3,10 @@ import {
   Check,
   Copy,
   ExternalLink,
+  ListFilter,
   LoaderCircle,
+  Maximize2,
+  Minimize2,
   RefreshCw,
   Save,
 } from 'lucide-react';
@@ -19,10 +22,14 @@ type LiveFeedModeProps = {
   mode: 'pending_input' | 'unsupported' | 'ready';
   unavailableReason?: string;
   hasPendingChanges?: boolean;
+  displayLimit?: number | null;
   route?: RouteItem;
   feedLabel?: string;
   entrySource: 'flow' | 'library';
+  isExpanded: boolean;
   onBack: () => void;
+  onOpenFilter?: () => void;
+  onToggleExpanded: () => void;
   onSaveFeed?: (payload: {
     label: string;
     url: string;
@@ -35,14 +42,12 @@ type StatePill = {
   className: string;
 };
 
-function formatFeedCount(options: { totalItems: number; shownItems: number }): string {
-  const { totalItems, shownItems } = options;
-
-  if (totalItems > shownItems) {
-    return `Showing ${shownItems} of ${totalItems}`;
-  }
-
+function formatFeedCount(totalItems: number): string {
   return `${totalItems} item${totalItems === 1 ? '' : 's'} in feed`;
+}
+
+function formatShownCount(shownItems: number): string {
+  return `Showing ${shownItems}`;
 }
 
 function formatPreviewTime(value?: string): string | undefined {
@@ -81,11 +86,10 @@ function getStatePill(options: {
   mode: LiveFeedModeProps['mode'];
   isLoading: boolean;
   totalItems: number;
-  shownItems: number;
   failure: LiveFeedFailure | null;
   isEmpty: boolean;
 }): StatePill {
-  const { mode, isLoading, totalItems, shownItems, failure, isEmpty } = options;
+  const { mode, isLoading, totalItems, failure, isEmpty } = options;
 
   if (mode === 'pending_input') {
     return {
@@ -130,7 +134,7 @@ function getStatePill(options: {
   }
 
   return {
-    label: formatFeedCount({ totalItems, shownItems }),
+    label: formatFeedCount(totalItems),
     className: 'preview-state-pill preview-state-pill--success',
   };
 }
@@ -140,10 +144,14 @@ export default function LiveFeedMode({
   mode,
   unavailableReason,
   hasPendingChanges = false,
+  displayLimit,
   route,
   feedLabel,
   entrySource,
+  isExpanded,
   onBack,
+  onOpenFilter,
+  onToggleExpanded,
   onSaveFeed,
 }: LiveFeedModeProps) {
   const [copied, setCopied] = useState(false);
@@ -154,7 +162,6 @@ export default function LiveFeedMode({
     failure,
     items,
     totalItems,
-    shownItems,
     hasRenderableFeed,
     refresh,
   } =
@@ -197,12 +204,19 @@ export default function LiveFeedMode({
     () => preview?.snapshot.feedTitle || feedLabel || route?.title || 'Live feed',
     [feedLabel, preview?.snapshot.feedTitle, route?.title]
   );
+  const displayedItems = useMemo(() => {
+    if (!displayLimit) {
+      return items;
+    }
+
+    return items.slice(0, displayLimit);
+  }, [displayLimit, items]);
+  const shownItems = displayedItems.length;
   const isEmpty = preview?.state === 'empty';
   const statePill = getStatePill({
     mode,
     isLoading,
     totalItems,
-    shownItems,
     failure,
     isEmpty,
   });
@@ -317,7 +331,7 @@ export default function LiveFeedMode({
 
     return (
       <div className="live-feed-browser-list" role="list" aria-label="Live feed items">
-        {items.map((item, index) => (
+        {displayedItems.map((item, index) => (
           <article
             key={item.id || `${item.title}-${index}`}
             className="live-feed-browser-post"
@@ -361,7 +375,11 @@ export default function LiveFeedMode({
   }
 
   return (
-    <section className="panel panel--primary utility-mode-panel live-feed-mode">
+    <section
+      className={`panel panel--primary utility-mode-panel live-feed-mode ${
+        isExpanded ? 'expanded' : ''
+      }`}
+    >
       <PanelHeader
         eyebrow="Live feed"
         title={resolvedFeedTitle}
@@ -371,10 +389,19 @@ export default function LiveFeedMode({
             : 'Browse the current feed in a dedicated view.'
         }
         actions={
-          <button type="button" className="ghost-button" onClick={onBack}>
-            <ArrowLeft size={16} />
-            <span>{backLabel}</span>
-          </button>
+          <div className="panel-header-actions">
+            {entrySource === 'library' && onOpenFilter ? (
+              <button type="button" className="ghost-button" onClick={onOpenFilter}>
+                <ListFilter size={16} />
+                <span>Filter</span>
+              </button>
+            ) : null}
+
+            <button type="button" className="ghost-button" onClick={onBack}>
+              <ArrowLeft size={16} />
+              <span>{backLabel}</span>
+            </button>
+          </div>
         }
       />
 
@@ -382,7 +409,7 @@ export default function LiveFeedMode({
         <div className="preview-meta">
           <span className={statePill.className}>{statePill.label}</span>
           {totalItems > shownItems ? (
-            <span className="badge subtle">{formatFeedCount({ totalItems, shownItems })}</span>
+            <span className="badge subtle">{formatShownCount(shownItems)}</span>
           ) : null}
           {preview?.status ? (
             <span className="badge subtle">Status {preview.status}</span>
@@ -441,7 +468,20 @@ export default function LiveFeedMode({
         {feedUrl || 'Feed URL appears after apply'}
       </div>
 
-      <div className="live-feed-browser">{renderState()}</div>
+      <div className={`live-feed-browser ${isExpanded ? 'expanded' : ''}`}>
+        {renderState()}
+      </div>
+
+      <div className="live-feed-mode-footer">
+        <button
+          type="button"
+          className="ghost-button"
+          onClick={onToggleExpanded}
+        >
+          {isExpanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+          <span>{isExpanded ? 'Collapse feed' : 'Expand feed'}</span>
+        </button>
+      </div>
     </section>
   );
 }

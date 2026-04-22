@@ -1,4 +1,4 @@
-import { ArrowUpRight, Copy, Download, Trash2 } from 'lucide-react';
+import { ArrowUpRight, Copy, Download, ListFilter, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import type { SavedFeed } from '../types';
 import PanelHeader from './PanelHeader';
@@ -9,6 +9,7 @@ type SavedFeedsProps = {
   activeFeedId?: string;
   onDeleteFeed: (id: string) => void;
   onOpenFeed: (feed: SavedFeed) => void;
+  onOpenFilter?: () => void;
 };
 
 function buildOpml(feeds: SavedFeed[]): string {
@@ -52,6 +53,7 @@ export default function SavedFeeds({
   activeFeedId,
   onDeleteFeed,
   onOpenFeed,
+  onOpenFilter,
 }: SavedFeedsProps) {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const opml = useMemo(() => buildOpml(feeds), [feeds]);
@@ -86,15 +88,27 @@ export default function SavedFeeds({
         title="Saved feeds"
         description="Keep reusable feeds close, then open the selected entry in the dedicated live-feed view."
         actions={
-          <button
-            type="button"
-            className="ghost-button"
-            onClick={handleExport}
-            disabled={!feeds.length}
-          >
-            <Download size={16} />
-            <span>Export OPML</span>
-          </button>
+          <>
+            <button
+              type="button"
+              className="ghost-button"
+              onClick={onOpenFilter}
+              disabled={!onOpenFilter}
+            >
+              <ListFilter size={16} />
+              <span>Filter</span>
+            </button>
+
+            <button
+              type="button"
+              className="ghost-button"
+              onClick={handleExport}
+              disabled={!feeds.length}
+            >
+              <Download size={16} />
+              <span>Export OPML</span>
+            </button>
+          </>
         }
       />
 

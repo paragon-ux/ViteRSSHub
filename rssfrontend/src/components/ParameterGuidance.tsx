@@ -1,4 +1,4 @@
-import { BookMarked } from 'lucide-react';
+import { BookMarked, ExternalLink } from 'lucide-react';
 import type { RouteItem } from '../types';
 import { getRouteParameterGuidance } from '../utils/routeDocs';
 
@@ -6,12 +6,17 @@ type ParameterGuidanceProps = {
   route?: RouteItem;
   paramNames?: string[];
   title?: string;
+  actionLink?: {
+    label: string;
+    href: string;
+  };
 };
 
 export default function ParameterGuidance({
   route,
   paramNames,
   title = 'Documented guidance',
+  actionLink,
 }: ParameterGuidanceProps) {
   const guidance = getRouteParameterGuidance(route, paramNames);
 
@@ -26,9 +31,23 @@ export default function ParameterGuidance({
           <BookMarked size={16} />
           <span>{title}</span>
         </span>
-        {guidance.coordinatedParamNames.length > 1 ? (
-          <span className="badge subtle">Coordinated values</span>
-        ) : null}
+        <div className="parameter-guidance-actions">
+          {guidance.coordinatedParamNames.length > 1 ? (
+            <span className="badge subtle">Coordinated values</span>
+          ) : null}
+
+          {actionLink ? (
+            <a
+              href={actionLink.href}
+              target="_blank"
+              rel="noreferrer"
+              className="parameter-guidance-link"
+            >
+              <ExternalLink size={14} />
+              <span>{actionLink.label}</span>
+            </a>
+          ) : null}
+        </div>
       </div>
 
       {guidance.summary ? <p className="parameter-guidance-summary">{guidance.summary}</p> : null}

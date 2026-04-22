@@ -17,6 +17,7 @@ type FeedCardsPreviewProps = {
   mode: 'pending_input' | 'unsupported' | 'ready';
   unavailableReason?: string;
   hasPendingChanges?: boolean;
+  displayLimit?: number | null;
   route?: RouteItem;
   feedLabel?: string;
   onSaveFeed: (payload: {
@@ -33,13 +34,13 @@ type StatePill = {
 };
 
 function formatFeedCount(options: { totalItems: number; shownItems: number }): string {
-  const { totalItems, shownItems } = options;
-
-  if (totalItems > shownItems) {
-    return `Showing ${shownItems} of ${totalItems}`;
-  }
+  const { totalItems } = options;
 
   return `${totalItems} item${totalItems === 1 ? '' : 's'} in feed`;
+}
+
+function formatShownCount(shownItems: number): string {
+  return `Showing ${shownItems}`;
 }
 
 function getStatePill(options: {
@@ -105,6 +106,7 @@ export default function FeedCardsPreview({
   mode,
   unavailableReason,
   hasPendingChanges = false,
+  displayLimit,
   route,
   feedLabel,
   onSaveFeed,
@@ -151,12 +153,13 @@ export default function FeedCardsPreview({
     () => preview?.snapshot.feedTitle || feedLabel || route?.title || 'Live feed',
     [feedLabel, preview?.snapshot.feedTitle, route?.title]
   );
+  const displayedCount = displayLimit ? Math.min(totalItems, displayLimit) : totalItems;
   const isEmpty = preview?.state === 'empty';
   const statePill = getStatePill({
     mode,
     isLoading,
     totalItems,
-    shownItems,
+    shownItems: displayedCount,
     failure,
     isEmpty,
   });
@@ -209,6 +212,9 @@ export default function FeedCardsPreview({
 
         <div className="feed-launcher-meta">
           <span className={statePill.className}>{statePill.label}</span>
+          {totalItems > displayedCount ? (
+            <span className="badge subtle">{formatShownCount(displayedCount)}</span>
+          ) : null}
           {preview?.status ? (
             <span className="badge subtle">Status {preview.status}</span>
           ) : null}

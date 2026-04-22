@@ -4,6 +4,7 @@ import {
   ChevronRight,
   FileText,
   Home,
+  ListFilter,
   Settings2,
   SlidersHorizontal,
 } from 'lucide-react';
@@ -14,6 +15,7 @@ import CategoryFilter from './components/CategoryFilter';
 import ConfigPanel from './components/ConfigPanel';
 import FeedBuilder from './components/FeedBuilder';
 import FeedCardsPreview from './components/FeedCardsPreview';
+import FilterMode, { type FilterModeTarget } from './components/FilterMode';
 import LiveFeedMode from './components/LiveFeedMode';
 import FeedPreview from './components/FeedPreview';
 import RouteDetails from './components/RouteDetails';
@@ -31,6 +33,11 @@ import type {
   SavedFeed,
 } from './types';
 import { getConfigHints, mergeConfigEntries } from './utils/configHints';
+import {
+  normalizeFeedDisplayLimitSetting,
+  resolveFeedDisplayLimit,
+  type FeedDisplayLimitSetting,
+} from './utils/feedDisplay';
 import { fetchRoutesCatalog } from './utils/fetchRoutes';
 import {
   getRouteSupportSummary,
@@ -46,11 +53,14 @@ const DEFAULT_SUPPORT_FILTER: RouteSupportFilter = 'ready';
 type AppSection =
   | 'home'
   | 'live-feed'
+  | 'filter'
   | 'route-context'
   | 'advanced'
   | 'debug'
   | 'library'
   | 'config';
+
+type FilterOrigin = 'flow' | 'library' | 'live-feed';
 
 type WorkflowStep = 1 | 2 | 3;
 
@@ -61,6 +71,36 @@ type LiveFeedContext = {
   source: 'flow' | 'library';
   savedFeedId?: string;
 };
+
+function buildFlowFilterTarget(route?: RouteItem): FilterModeTarget | null {
+  if (!route) {
+    return null;
+  }
+
+  return {
+    source: 'flow',
+    key: route.id,
+    label: route.title,
+    subtitle: route.routePath,
+  };
+}
+
+function buildLibraryFilterTarget(feed?: SavedFeed): FilterModeTarget | null {
+  if (!feed) {
+    return null;
+  }
+
+  return {
+    source: 'library',
+    key: feed.id,
+    label: feed.label,
+    subtitle: feed.url,
+  };
+}
+
+function getFilterStorageKey(target: FilterModeTarget): string {
+  return `${target.source}:${target.key}`;
+}
 
 function normalizeRemoteConfigToEntries(payload: unknown): ConfigEntry[] {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
@@ -162,6 +202,9 @@ export default function App() {
     'rsshub.savedFeeds',
     []
   );
+  const [displayLimitSettings, setDisplayLimitSettings] = useLocalStorage<
+    Record<string, FeedDisplayLimitSetting>
+  >('rsshub.feedDisplayLimits', {});
   const [endpointUrl, setEndpointUrl] = useLocalStorage<string>(
     'rsshub.remoteConfigUrl',
     DEFAULT_REMOTE_CONFIG_URL
@@ -175,6 +218,9 @@ export default function App() {
     useState<RouteSupportFilter>(DEFAULT_SUPPORT_FILTER);
   const [activeSection, setActiveSection] = useState<AppSection>('home');
   const [liveFeedContext, setLiveFeedContext] = useState<LiveFeedContext | null>(null);
+  const [isLiveFeedExpanded, setIsLiveFeedExpanded] = useState(false);
+  const [filterTarget, setFilterTarget] = useState<FilterModeTarget | null>(null);
+  const [filterOrigin, setFilterOrigin] = useState<FilterOrigin>('flow');
   const [currentStep, setCurrentStep] = useState<WorkflowStep>(1);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
@@ -268,6 +314,13 @@ export default function App() {
   const configHints = useMemo(() => {
     return getConfigHints(selectedRoute);
   }, [selectedRoute]);
+  const activeSavedFeed = useMemo(() => {
+    if (liveFeedContext?.source !== 'library' || !liveFeedContext.savedFeedId) {
+      return undefined;
+    }
+
+    return savedFeeds.find((feed) => feed.id === liveFeedContext.savedFeedId);
+  }, [liveFeedContext, savedFeeds]);
 
   const composer = useFeedComposer({
     baseUrl,
@@ -403,11 +456,51 @@ export default function App() {
 
   function handleOpenLiveFeed(payload: LiveFeedContext) {
     setLiveFeedContext(payload);
+    setIsLiveFeedExpanded(false);
+    setActiveSection('live-feed');
+  }
+
+  function handleOpenFilter(
+    target: FilterModeTarget | null,
+    origin: FilterOrigin
+  ) {
+    setFilterTarget(target);
+    setFilterOrigin(origin);
+    setActiveSection('filter');
+  }
+
+  function handleSaveDisplayLimit(setting: FeedDisplayLimitSetting) {
+    if (!filterTarget) {
+      return;
+    }
+
+    const storageKey = getFilterStorageKey(filterTarget);
+
+    setDisplayLimitSettings((current) => ({
+      ...current,
+      [storageKey]: normalizeFeedDisplayLimitSetting(setting),
+    }));
+
+    if (filterOrigin === 'flow') {
+      setCurrentStep(2);
+      setActiveSection('home');
+      return;
+    }
+
+    if (filterOrigin === 'library') {
+      setActiveSection('library');
+      return;
+    }
+
     setActiveSection('live-feed');
   }
 
   function handleDeleteFeed(id: string) {
     setSavedFeeds((current) => current.filter((feed) => feed.id !== id));
+
+    if (filterTarget?.source === 'library' && filterTarget.key === id) {
+      setFilterTarget(null);
+    }
 
     if (liveFeedContext?.source === 'library' && liveFeedContext.savedFeedId === id) {
       setLiveFeedContext(null);
@@ -423,6 +516,21 @@ export default function App() {
 
   const isStepTwoAvailable = Boolean(selectedRoute);
   const isStepThreeAvailable = Boolean(selectedRoute && composer.hasAppliedValues);
+  const stepThreeDisplayTarget = buildFlowFilterTarget(selectedRoute);
+  const stepThreeDisplayLimit = stepThreeDisplayTarget
+    ? resolveFeedDisplayLimit(
+        displayLimitSettings[getFilterStorageKey(stepThreeDisplayTarget)]
+      )
+    : null;
+  const liveFeedDisplayTarget =
+    liveFeedContext?.source === 'library'
+      ? buildLibraryFilterTarget(activeSavedFeed)
+      : buildFlowFilterTarget(liveFeedContext?.route);
+  const liveFeedDisplayLimit = liveFeedDisplayTarget
+    ? resolveFeedDisplayLimit(
+        displayLimitSettings[getFilterStorageKey(liveFeedDisplayTarget)]
+      )
+    : null;
 
   const navigationItems: Array<{
     id: AppSection;
@@ -434,6 +542,7 @@ export default function App() {
     { id: 'advanced', label: 'Tune', icon: SlidersHorizontal },
     { id: 'debug', label: 'Debug', icon: Bug },
     { id: 'library', label: 'Library', icon: Bookmark },
+    { id: 'filter', label: 'Filter', icon: ListFilter },
     { id: 'config', label: 'Setup', icon: Settings2 },
   ];
   const workflowSteps: Array<{
@@ -496,6 +605,23 @@ export default function App() {
               savedFeedId: feed.id,
             })
           }
+          onOpenFilter={() =>
+            handleOpenFilter(buildLibraryFilterTarget(activeSavedFeed), 'library')
+          }
+        />
+      );
+    }
+
+    if (section === 'filter') {
+      return (
+        <FilterMode
+          target={filterTarget}
+          appliedSetting={
+            filterTarget
+              ? displayLimitSettings[getFilterStorageKey(filterTarget)]
+              : undefined
+          }
+          onSave={handleSaveDisplayLimit}
         />
       );
     }
@@ -637,6 +763,9 @@ export default function App() {
         isActive
         isAvailable={isStepTwoAvailable}
         onApplied={() => setCurrentStep(3)}
+        onOpenFilter={() =>
+          handleOpenFilter(buildFlowFilterTarget(selectedRoute), 'flow')
+        }
       />
     ) : (
       <article
@@ -668,6 +797,7 @@ export default function App() {
             mode={previewMode}
             unavailableReason={composer.builderNotice}
             hasPendingChanges={composer.hasPendingChanges && composer.hasAppliedValues}
+            displayLimit={stepThreeDisplayLimit}
             route={selectedRoute}
             onSaveFeed={handleSaveFeed}
             onOpenLiveFeed={() =>
@@ -783,7 +913,11 @@ export default function App() {
   );
 
   const liveFeedSurface = liveFeedContext ? (
-    <section className="panel panel--primary utility-view-panel">
+    <section
+      className={`panel panel--primary utility-view-panel ${
+        isLiveFeedExpanded ? 'utility-view-panel--live-feed-expanded' : ''
+      }`}
+    >
       <LiveFeedMode
         feedUrl={liveFeedContext.feedUrl}
         mode={liveFeedContext.feedUrl ? 'ready' : 'pending_input'}
@@ -795,12 +929,25 @@ export default function App() {
             ? composer.hasPendingChanges && composer.hasAppliedValues
             : false
         }
+        displayLimit={liveFeedDisplayLimit}
         route={liveFeedContext.route}
         feedLabel={liveFeedContext.label}
         entrySource={liveFeedContext.source}
-        onBack={() =>
-          setActiveSection(liveFeedContext.source === 'library' ? 'library' : 'home')
+        isExpanded={isLiveFeedExpanded}
+        onOpenFilter={
+          liveFeedContext.source === 'library'
+            ? () =>
+                handleOpenFilter(
+                  buildLibraryFilterTarget(activeSavedFeed),
+                  'live-feed'
+                )
+            : undefined
         }
+        onBack={() => {
+          setIsLiveFeedExpanded(false);
+          setActiveSection(liveFeedContext.source === 'library' ? 'library' : 'home');
+        }}
+        onToggleExpanded={() => setIsLiveFeedExpanded((current) => !current)}
         onSaveFeed={liveFeedContext.route ? handleSaveFeed : undefined}
       />
     </section>
@@ -846,7 +993,13 @@ export default function App() {
         </header>
 
         <div className="workspace-layout">
-          <section className="workspace-main">
+          <section
+            className={`workspace-main ${
+              activeSection === 'live-feed' && isLiveFeedExpanded
+                ? 'workspace-main--live-feed-expanded'
+                : ''
+            }`}
+          >
             {activeSection === 'home'
               ? mainHomeSurface
               : activeSection === 'live-feed'
@@ -865,7 +1018,28 @@ export default function App() {
                     key={item.id}
                     type="button"
                     className={`utility-nav-button ${isActive ? 'active' : ''}`}
-                    onClick={() => setActiveSection(item.id)}
+                    onClick={() => {
+                      if (item.id === 'filter') {
+                        const nextTarget =
+                          activeSection === 'library' || liveFeedContext?.source === 'library'
+                            ? buildLibraryFilterTarget(activeSavedFeed)
+                            : buildFlowFilterTarget(
+                                liveFeedContext?.source === 'flow'
+                                  ? liveFeedContext.route
+                                  : selectedRoute
+                              );
+                        const origin: FilterOrigin =
+                          activeSection === 'live-feed'
+                            ? 'live-feed'
+                            : activeSection === 'library'
+                              ? 'library'
+                              : 'flow';
+                        handleOpenFilter(nextTarget, origin);
+                        return;
+                      }
+
+                      setActiveSection(item.id);
+                    }}
                     aria-current={isActive ? 'page' : undefined}
                     title={item.label}
                   >

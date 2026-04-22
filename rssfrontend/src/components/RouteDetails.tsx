@@ -14,6 +14,7 @@ import {
   getRequirementTone,
   getRouteRequirements,
 } from '../utils/routeRequirements';
+import { getSourceDocsUrl } from '../utils/routeDocs';
 import { getTwitterSupportMessage } from '../utils/twitterSource';
 
 type RouteDetailsProps = {
@@ -65,6 +66,7 @@ export default function RouteDetails({
     ? getTwitterSupportMessage(route)
     : undefined;
   const showDescription = shouldShowDescription(route.description);
+  const sourceDocsUrl = getSourceDocsUrl(route);
 
   return (
     <section className="panel panel--context utility-mode-panel route-details">
@@ -196,25 +198,15 @@ export default function RouteDetails({
                 <p className="requirement-message">{requirement.message}</p>
 
                 <div className="requirement-links">
-                  <a
-                    href={requirement.configUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="requirement-link"
-                  >
-                    <ExternalLink size={16} />
-                    <span>Config guide</span>
-                  </a>
-
-                  {requirement.docsUrl ? (
+                  {sourceDocsUrl ? (
                     <a
-                      href={requirement.docsUrl}
+                      href={sourceDocsUrl}
                       target="_blank"
                       rel="noreferrer"
                       className="requirement-link"
                     >
                       <ExternalLink size={16} />
-                      <span>Route docs</span>
+                      <span>Config guide</span>
                     </a>
                   ) : null}
                 </div>
@@ -225,13 +217,6 @@ export default function RouteDetails({
       </div>
 
       <div className="route-footer-links">
-        {route.docsUrl ? (
-          <a href={route.docsUrl} target="_blank" rel="noreferrer">
-            <ExternalLink size={16} />
-            <span>Open route docs</span>
-          </a>
-        ) : null}
-
         {route.radar ? (
           <a href={route.radar} target="_blank" rel="noreferrer">
             <ExternalLink size={16} />

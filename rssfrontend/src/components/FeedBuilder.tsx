@@ -3,6 +3,7 @@ import {
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  ListFilter,
 } from 'lucide-react';
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import type { FeedComposerState } from '../hooks/useFeedComposer';
@@ -23,6 +24,7 @@ type FeedBuilderProps = {
   isActive: boolean;
   isAvailable: boolean;
   onApplied: () => void;
+  onOpenFilter?: () => void;
 };
 
 const PARAMS_PER_PAGE = 4;
@@ -34,6 +36,7 @@ export default function FeedBuilder({
   isActive,
   isAvailable,
   onApplied,
+  onOpenFilter,
 }: FeedBuilderProps) {
   const [paramPage, setParamPage] = useState(0);
 
@@ -108,13 +111,25 @@ export default function FeedBuilder({
             <p>Fill the required fields, then apply once.</p>
           </div>
 
-          <span className="guided-step-status">
-            {composer.hasAppliedValues && !composer.hasPendingChanges
-              ? 'Applied'
-              : isAvailable
-                ? 'Ready'
-                : 'Locked'}
-          </span>
+          <div className="guided-step-header-actions">
+            <button
+              type="button"
+              className="ghost-button"
+              onClick={onOpenFilter}
+              disabled={!route || !onOpenFilter}
+            >
+              <ListFilter size={16} />
+              <span>Filter</span>
+            </button>
+
+            <span className="guided-step-status">
+              {composer.hasAppliedValues && !composer.hasPendingChanges
+                ? 'Applied'
+                : isAvailable
+                  ? 'Ready'
+                  : 'Locked'}
+            </span>
+          </div>
         </div>
 
         <div className="guided-step-body">
