@@ -6,14 +6,13 @@ import {
   ListFilter,
   LoaderCircle,
   Maximize2,
-  Minimize2,
   RefreshCw,
   Save,
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import type { RouteItem } from '../types';
-import type { FeedPreviewItem } from '../utils/feedPreview';
 import { useLiveFeedPreview, type LiveFeedFailure } from '../hooks/useLiveFeedPreview';
+import LiveFeedItemsList from './LiveFeedItemsList';
 import PanelHeader from './PanelHeader';
 import StateBlock from './StateBlock';
 
@@ -48,38 +47,6 @@ function formatFeedCount(totalItems: number): string {
 
 function formatShownCount(shownItems: number): string {
   return `Showing ${shownItems}`;
-}
-
-function formatPreviewTime(value?: string): string | undefined {
-  if (!value) {
-    return undefined;
-  }
-
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  return date.toLocaleString(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  });
-}
-
-function getItemMeta(item: FeedPreviewItem, fallbackSource?: string): string[] {
-  const meta: string[] = [];
-  const source = item.source || fallbackSource;
-  const publishedAt = formatPreviewTime(item.publishedAt);
-
-  if (source) {
-    meta.push(source);
-  }
-
-  if (publishedAt) {
-    meta.push(publishedAt);
-  }
-
-  return meta;
 }
 
 function getStatePill(options: {
@@ -175,6 +142,24 @@ export default function LiveFeedMode({
     setSaved(false);
   }, [feedUrl]);
 
+  useEffect(() => {
+    if (!isExpanded) {
+      return undefined;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onToggleExpanded();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isExpanded, onToggleExpanded]);
+
   async function handleCopyFeedUrl() {
     if (!feedUrl) {
       return;
@@ -259,25 +244,29 @@ export default function LiveFeedMode({
           title="Live feed fetch failed"
           message={failure.message}
           action={
-            <div className="preview-meta">
-              {typeof failure.status === 'number' ? (
-                <span className="badge danger-badge">
-                  Status {failure.status}
-                  {failure.statusText ? ` ${failure.statusText}` : ''}
-                </span>
-              ) : null}
-              {feedUrl ? (
-                <a
-                  href={feedUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="ghost-button"
-                >
-                  <ExternalLink size={16} />
-                  <span>Open raw feed</span>
-                </a>
-              ) : null}
-            </div>
+            isExpanded
+              ? undefined
+              : (
+                  <div className="preview-meta">
+                    {typeof failure.status === 'number' ? (
+                      <span className="badge danger-badge">
+                        Status {failure.status}
+                        {failure.statusText ? ` ${failure.statusText}` : ''}
+                      </span>
+                    ) : null}
+                    {feedUrl ? (
+                      <a
+                        href={feedUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="ghost-button"
+                      >
+                        <ExternalLink size={16} />
+                        <span>Open raw feed</span>
+                      </a>
+                    ) : null}
+                  </div>
+                )
           }
         />
       );
@@ -291,7 +280,7 @@ export default function LiveFeedMode({
           title="Live feed parse failed"
           message={failure.message}
           action={
-            feedUrl ? (
+            !isExpanded && feedUrl ? (
               <a
                 href={feedUrl}
                 target="_blank"
@@ -330,158 +319,151 @@ export default function LiveFeedMode({
     }
 
     return (
-      <div className="live-feed-browser-list" role="list" aria-label="Live feed items">
-        {displayedItems.map((item, index) => (
-          <article
-            key={item.id || `${item.title}-${index}`}
-            className="live-feed-browser-post"
-            role="listitem"
-          >
-            <div className="live-feed-browser-post-main">
-              <div className="live-feed-browser-post-top">
-                <div className="preview-card-meta">
-                  {getItemMeta(item, resolvedFeedTitle).map((value) => (
-                    <span key={value}>{value}</span>
-                  ))}
-                </div>
-
-                {item.link ? (
-                  <a
-                    href={item.link}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="ghost-button"
-                  >
-                    <ExternalLink size={16} />
-                    <span>Open item</span>
-                  </a>
-                ) : null}
-              </div>
-
-              <h3>{item.title}</h3>
-
-              {item.summary ? <p>{item.summary}</p> : null}
-            </div>
-
-            {item.imageUrl ? (
-              <div className="live-feed-browser-media">
-                <img src={item.imageUrl} alt="" loading="lazy" />
-              </div>
-            ) : null}
-          </article>
-        ))}
-      </div>
+      <LiveFeedItemsList
+        items={displayedItems}
+        fallbackSource={resolvedFeedTitle}
+      />
     );
   }
 
-  return (
+  const content = (
     <section
       className={`panel panel--primary utility-mode-panel live-feed-mode ${
         isExpanded ? 'expanded' : ''
       }`}
+      role={isExpanded ? 'dialog' : undefined}
+      aria-modal={isExpanded ? 'true' : undefined}
+      aria-label={isExpanded ? resolvedFeedTitle : undefined}
     >
       <PanelHeader
         eyebrow="Live feed"
         title={resolvedFeedTitle}
         description={
-          hasPendingChanges
+          isExpanded
+            ? undefined
+            : hasPendingChanges
             ? 'Showing the last applied feed. Apply the latest inputs in the workflow to refresh it.'
             : 'Browse the current feed in a dedicated view.'
         }
         actions={
-          <div className="panel-header-actions">
-            {entrySource === 'library' && onOpenFilter ? (
-              <button type="button" className="ghost-button" onClick={onOpenFilter}>
-                <ListFilter size={16} />
-                <span>Filter</span>
-              </button>
-            ) : null}
+          isExpanded
+            ? undefined
+            : (
+                <div className="panel-header-actions">
+                  {entrySource === 'library' && onOpenFilter ? (
+                    <button type="button" className="ghost-button" onClick={onOpenFilter}>
+                      <ListFilter size={16} />
+                      <span>Filter</span>
+                    </button>
+                  ) : null}
 
-            <button type="button" className="ghost-button" onClick={onBack}>
-              <ArrowLeft size={16} />
-              <span>{backLabel}</span>
-            </button>
-          </div>
+                  <button type="button" className="ghost-button" onClick={onBack}>
+                    <ArrowLeft size={16} />
+                    <span>{backLabel}</span>
+                  </button>
+                </div>
+              )
         }
       />
 
-      <div className="live-feed-mode-toolbar">
-        <div className="preview-meta">
-          <span className={statePill.className}>{statePill.label}</span>
-          {totalItems > shownItems ? (
-            <span className="badge subtle">{formatShownCount(shownItems)}</span>
-          ) : null}
-          {preview?.status ? (
-            <span className="badge subtle">Status {preview.status}</span>
-          ) : null}
-          {preview?.snapshot.homeUrl ? (
-            <span className="badge subtle">Feed source available</span>
-          ) : null}
-        </div>
+      {!isExpanded ? (
+        <div className="live-feed-mode-toolbar">
+          <div className="preview-meta">
+            <span className={statePill.className}>{statePill.label}</span>
+            {totalItems > shownItems ? (
+              <span className="badge subtle">{formatShownCount(shownItems)}</span>
+            ) : null}
+            {preview?.status ? (
+              <span className="badge subtle">Status {preview.status}</span>
+            ) : null}
+            {preview?.snapshot.homeUrl ? (
+              <span className="badge subtle">Feed source available</span>
+            ) : null}
+          </div>
 
-        <div className="builder-actions">
-          <button
-            type="button"
-            className="ghost-button"
-            onClick={() => void handleCopyFeedUrl()}
-            disabled={!feedUrl}
-          >
-            {copied ? <Check size={16} /> : <Copy size={16} />}
-            <span>{copied ? 'Copied' : 'Copy URL'}</span>
-          </button>
-
-          <a
-            href={feedUrl || '#'}
-            target="_blank"
-            rel="noreferrer"
-            className={`ghost-button ${!feedUrl ? 'disabled' : ''}`}
-          >
-            <ExternalLink size={16} />
-            <span>Open raw feed</span>
-          </a>
-
-          {route && onSaveFeed ? (
+          <div className="builder-actions">
             <button
               type="button"
               className="ghost-button"
-              onClick={handleSaveFeed}
+              onClick={() => void handleCopyFeedUrl()}
               disabled={!feedUrl}
             >
-              {saved ? <Check size={16} /> : <Save size={16} />}
-              <span>{saved ? 'Saved' : 'Save feed'}</span>
+              {copied ? <Check size={16} /> : <Copy size={16} />}
+              <span>{copied ? 'Copied' : 'Copy URL'}</span>
             </button>
-          ) : null}
 
-          <button
-            type="button"
-            className="ghost-button"
-            onClick={refresh}
-            disabled={mode !== 'ready' || !feedUrl || isLoading}
-          >
-            {isLoading ? <LoaderCircle size={16} className="spin" /> : <RefreshCw size={16} />}
-            <span>{isLoading ? 'Refreshing...' : 'Refresh'}</span>
-          </button>
+            <a
+              href={feedUrl || '#'}
+              target="_blank"
+              rel="noreferrer"
+              className={`ghost-button ${!feedUrl ? 'disabled' : ''}`}
+            >
+              <ExternalLink size={16} />
+              <span>Open raw feed</span>
+            </a>
+
+            {route && onSaveFeed ? (
+              <button
+                type="button"
+                className="ghost-button"
+                onClick={handleSaveFeed}
+                disabled={!feedUrl}
+              >
+                {saved ? <Check size={16} /> : <Save size={16} />}
+                <span>{saved ? 'Saved' : 'Save feed'}</span>
+              </button>
+            ) : null}
+
+            <button
+              type="button"
+              className="ghost-button"
+              onClick={refresh}
+              disabled={mode !== 'ready' || !feedUrl || isLoading}
+            >
+              {isLoading ? <LoaderCircle size={16} className="spin" /> : <RefreshCw size={16} />}
+              <span>{isLoading ? 'Refreshing...' : 'Refresh'}</span>
+            </button>
+
+            <button
+              type="button"
+              className="ghost-button"
+              onClick={onToggleExpanded}
+              disabled={mode !== 'ready' || !hasRenderableFeed}
+            >
+              <Maximize2 size={16} />
+              <span>Expand feed</span>
+            </button>
+          </div>
         </div>
-      </div>
+      ) : null}
 
-      <div className="live-feed-mode-url" title={feedUrl}>
-        {feedUrl || 'Feed URL appears after apply'}
-      </div>
+      {!isExpanded ? (
+        <div className="live-feed-mode-url" title={feedUrl}>
+          {feedUrl || 'Feed URL appears after apply'}
+        </div>
+      ) : null}
 
       <div className={`live-feed-browser ${isExpanded ? 'expanded' : ''}`}>
         {renderState()}
       </div>
-
-      <div className="live-feed-mode-footer">
-        <button
-          type="button"
-          className="ghost-button"
-          onClick={onToggleExpanded}
-        >
-          {isExpanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
-          <span>{isExpanded ? 'Collapse feed' : 'Expand feed'}</span>
-        </button>
-      </div>
     </section>
+  );
+
+  if (!isExpanded) {
+    return content;
+  }
+
+  return (
+    <div className="live-feed-overlay" role="presentation">
+      <button
+        type="button"
+        className="live-feed-overlay-backdrop"
+        aria-label="Close expanded live feed"
+        onClick={onToggleExpanded}
+      />
+      <div className="live-feed-overlay-frame" onClick={(event) => event.stopPropagation()}>
+        {content}
+      </div>
+    </div>
   );
 }

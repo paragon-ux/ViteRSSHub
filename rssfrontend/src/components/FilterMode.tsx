@@ -1,4 +1,4 @@
-import { ListFilter } from 'lucide-react';
+import { ArrowLeft, ListFilter } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import type { FeedDisplayLimitSetting } from '../utils/feedDisplay';
 import {
@@ -20,6 +20,7 @@ type FilterModeProps = {
   target: FilterModeTarget | null;
   appliedSetting?: FeedDisplayLimitSetting;
   onSave: (setting: FeedDisplayLimitSetting) => void;
+  onBack?: () => void;
 };
 
 function getCustomValidationMessage(value: string): string | undefined {
@@ -46,6 +47,7 @@ export default function FilterMode({
   target,
   appliedSetting,
   onSave,
+  onBack,
 }: FilterModeProps) {
   const normalizedApplied = useMemo(
     () => normalizeFeedDisplayLimitSetting(appliedSetting),
@@ -108,6 +110,16 @@ export default function FilterMode({
         eyebrow="Filter"
         title="Displayed item limit"
         description="Apply an optional display limit to the active route or saved feed without changing the underlying feed."
+        actions={
+          onBack ? (
+            <div className="panel-header-actions">
+              <button type="button" className="ghost-button" onClick={onBack}>
+                <ArrowLeft size={16} />
+                <span>Back</span>
+              </button>
+            </div>
+          ) : undefined
+        }
       />
 
       {!target ? (

@@ -1,5 +1,4 @@
 :root {
-  scroll-behavior: smooth;
   font-family:
     Manrope, Aptos, 'Segoe UI Variable Text', ui-sans-serif, system-ui,
     -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -271,12 +270,6 @@ pre {
   justify-self: center;
   min-height: 0;
   height: 100%;
-}
-
-.workspace-main--live-feed-expanded {
-  overflow: auto;
-  padding-right: 2px;
-  padding-bottom: 0px;
 }
 
 .utility-rail {
@@ -677,20 +670,10 @@ pre {
   box-shadow: var(--shadow-md);
 }
 
-.utility-view-panel--live-feed-expanded {
-  height: auto;
-  min-height: 100%;
-  overflow: visible;
-}
-
 .utility-view-panel > * {
   min-width: 0;
   min-height: 0;
   overflow: auto;
-}
-
-.utility-view-panel--live-feed-expanded > * {
-  overflow: visible;
 }
 
 .utility-mode-panel {
@@ -2065,14 +2048,20 @@ select:focus {
   min-height: 0;
   height: 100%;
   overflow: hidden;
-  
 }
 
 .live-feed-mode.expanded {
-  grid-template-rows: auto auto auto auto;
-  height: auto;
-  min-height: 100%;
-  overflow: visible;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 12px;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  max-height: none;
+  overflow: hidden;
+  border-radius: 28px;
+  box-shadow:
+    0 36px 72px rgba(15, 23, 42, 0.2),
+    0 12px 24px rgba(15, 23, 42, 0.12);
 }
 
 .live-feed-mode-toolbar {
@@ -2093,7 +2082,7 @@ select:focus {
 }
 
 .live-feed-browser.expanded {
-  overflow: visible;
+  overflow: hidden;
 }
 
 .live-feed-browser > .state-block {
@@ -2110,9 +2099,11 @@ select:focus {
 }
 
 .live-feed-mode.expanded .live-feed-browser-list {
+  height: 100%;
+  min-height: 0;
   max-height: none;
-  overflow: visible;
-  padding-right: 0;
+  overflow: auto;
+  padding-right: 4px;
 }
 
 .live-feed-browser-post {
@@ -2162,6 +2153,7 @@ select:focus {
   min-width: 140px;
   height: 140px;
   overflow: hidden;
+  contain: paint;
   border-radius: 20px;
   background: rgba(35, 50, 71, 0.06);
 }
@@ -2173,27 +2165,6 @@ select:focus {
   object-fit: cover;
 }
 
-.live-feed-mode-footer {
-  position: fixed;
-  right: clamp(124px, calc((100vw - 1210px) / 2 + 124px), 278px);
-  bottom: 28px;
-  z-index: 24;
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 0;
-  padding: 0;
-  pointer-events: none;
-}
-
-.live-feed-mode-footer .ghost-button {
-  pointer-events: auto;
-  border-color: rgba(15, 118, 110, 0.16);
-  background: rgba(255, 255, 255, 0.96);
-  box-shadow:
-    0 18px 32px rgba(15, 23, 42, 0.12),
-    0 4px 12px rgba(15, 23, 42, 0.06);
-}
-
 .live-feed-browser-skeleton {
   min-height: 360px;
   border-radius: 24px;
@@ -2201,6 +2172,32 @@ select:focus {
     linear-gradient(90deg, rgba(35, 50, 71, 0.05), rgba(35, 50, 71, 0.09), rgba(35, 50, 71, 0.05));
   background-size: 200% 100%;
   animation: shimmer 1.4s ease infinite;
+}
+
+.live-feed-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.live-feed-overlay-backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  padding: 0;
+  background: rgba(15, 23, 42, 0.56);
+  backdrop-filter: blur(10px);
+}
+
+.live-feed-overlay-frame {
+  position: relative;
+  z-index: 1;
+  width: min(1180px, calc(100vw - 48px));
+  height: min(92vh, calc(100vh - 48px));
+  max-height: calc(100vh - 48px);
 }
 
 .preview-card-grid {
@@ -2875,10 +2872,16 @@ select:focus {
     justify-items: flex-start;
   }
 
-  .live-feed-mode-footer {
-    right: 22px;
-    bottom: 22px;
+  .live-feed-overlay {
+    padding: 20px;
   }
+
+  .live-feed-overlay-frame {
+    width: min(1120px, calc(100vw - 40px));
+    height: min(92vh, calc(100vh - 40px));
+    max-height: calc(100vh - 40px);
+  }
+
 }
 
 @media (max-width: 760px) {
@@ -2965,6 +2968,16 @@ select:focus {
 
   .utility-nav {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .live-feed-overlay {
+    padding: 14px;
+  }
+
+  .live-feed-overlay-frame {
+    width: calc(100vw - 28px);
+    height: calc(100vh - 28px);
+    max-height: calc(100vh - 28px);
   }
 
   .preview-card {

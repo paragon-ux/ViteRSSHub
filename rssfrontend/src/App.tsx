@@ -221,6 +221,7 @@ export default function App() {
   const [isLiveFeedExpanded, setIsLiveFeedExpanded] = useState(false);
   const [filterTarget, setFilterTarget] = useState<FilterModeTarget | null>(null);
   const [filterOrigin, setFilterOrigin] = useState<FilterOrigin>('flow');
+  const [filterBackSection, setFilterBackSection] = useState<AppSection | null>(null);
   const [currentStep, setCurrentStep] = useState<WorkflowStep>(1);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
@@ -462,10 +463,12 @@ export default function App() {
 
   function handleOpenFilter(
     target: FilterModeTarget | null,
-    origin: FilterOrigin
+    origin: FilterOrigin,
+    backSection: AppSection | null = null
   ) {
     setFilterTarget(target);
     setFilterOrigin(origin);
+    setFilterBackSection(backSection);
     setActiveSection('filter');
   }
 
@@ -606,7 +609,11 @@ export default function App() {
             })
           }
           onOpenFilter={() =>
-            handleOpenFilter(buildLibraryFilterTarget(activeSavedFeed), 'library')
+            handleOpenFilter(
+              buildLibraryFilterTarget(activeSavedFeed),
+              'library',
+              'library'
+            )
           }
         />
       );
@@ -622,6 +629,13 @@ export default function App() {
               : undefined
           }
           onSave={handleSaveDisplayLimit}
+          onBack={
+            filterBackSection
+              ? () => {
+                  setActiveSection(filterBackSection);
+                }
+              : undefined
+          }
         />
       );
     }
@@ -764,7 +778,7 @@ export default function App() {
         isAvailable={isStepTwoAvailable}
         onApplied={() => setCurrentStep(3)}
         onOpenFilter={() =>
-          handleOpenFilter(buildFlowFilterTarget(selectedRoute), 'flow')
+          handleOpenFilter(buildFlowFilterTarget(selectedRoute), 'flow', 'home')
         }
       />
     ) : (
@@ -913,11 +927,7 @@ export default function App() {
   );
 
   const liveFeedSurface = liveFeedContext ? (
-    <section
-      className={`panel panel--primary utility-view-panel ${
-        isLiveFeedExpanded ? 'utility-view-panel--live-feed-expanded' : ''
-      }`}
-    >
+    <section className="panel panel--primary utility-view-panel">
       <LiveFeedMode
         feedUrl={liveFeedContext.feedUrl}
         mode={liveFeedContext.feedUrl ? 'ready' : 'pending_input'}
@@ -934,11 +944,13 @@ export default function App() {
         feedLabel={liveFeedContext.label}
         entrySource={liveFeedContext.source}
         isExpanded={isLiveFeedExpanded}
+        onToggleExpanded={() => setIsLiveFeedExpanded((current) => !current)}
         onOpenFilter={
           liveFeedContext.source === 'library'
             ? () =>
                 handleOpenFilter(
                   buildLibraryFilterTarget(activeSavedFeed),
+                  'live-feed',
                   'live-feed'
                 )
             : undefined
@@ -947,7 +959,6 @@ export default function App() {
           setIsLiveFeedExpanded(false);
           setActiveSection(liveFeedContext.source === 'library' ? 'library' : 'home');
         }}
-        onToggleExpanded={() => setIsLiveFeedExpanded((current) => !current)}
         onSaveFeed={liveFeedContext.route ? handleSaveFeed : undefined}
       />
     </section>
@@ -993,13 +1004,7 @@ export default function App() {
         </header>
 
         <div className="workspace-layout">
-          <section
-            className={`workspace-main ${
-              activeSection === 'live-feed' && isLiveFeedExpanded
-                ? 'workspace-main--live-feed-expanded'
-                : ''
-            }`}
-          >
+          <section className="workspace-main">
             {activeSection === 'home'
               ? mainHomeSurface
               : activeSection === 'live-feed'
@@ -1034,7 +1039,7 @@ export default function App() {
                             : activeSection === 'library'
                               ? 'library'
                               : 'flow';
-                        handleOpenFilter(nextTarget, origin);
+                        handleOpenFilter(nextTarget, origin, null);
                         return;
                       }
 
