@@ -6,6 +6,7 @@ import {
   ListFilter,
   LoaderCircle,
   Maximize2,
+  Minimize2,
   RefreshCw,
   Save,
 } from 'lucide-react';
@@ -322,6 +323,7 @@ export default function LiveFeedMode({
       <LiveFeedItemsList
         items={displayedItems}
         fallbackSource={resolvedFeedTitle}
+        isExpanded={isExpanded}
       />
     );
   }
@@ -463,6 +465,16 @@ export default function LiveFeedMode({
       />
       <div className="live-feed-overlay-frame" onClick={(event) => event.stopPropagation()}>
         {content}
+      </div>
+      <div className="live-feed-overlay-close">
+        <button
+          type="button"
+          className="ghost-button"
+          onClick={onToggleExpanded}
+        >
+          <Minimize2 size={16} />
+          <span>Collapse feed</span>
+        </button>
       </div>
     </div>
   );

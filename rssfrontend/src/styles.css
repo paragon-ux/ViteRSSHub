@@ -676,6 +676,11 @@ pre {
   overflow: auto;
 }
 
+.utility-view-panel--live-feed,
+.utility-view-panel--live-feed > * {
+  overflow: hidden;
+}
+
 .utility-mode-panel {
   display: flex;
   flex-direction: column;
@@ -2081,8 +2086,14 @@ select:focus {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(249, 244, 236, 0.92));
 }
 
+.live-feed-mode:not(.expanded) .live-feed-browser {
+  display: flex;
+  flex-direction: column;
+}
+
 .live-feed-browser.expanded {
   overflow: hidden;
+  contain: layout paint;
 }
 
 .live-feed-browser > .state-block {
@@ -2098,12 +2109,20 @@ select:focus {
   padding-right: 4px;
 }
 
+.live-feed-mode:not(.expanded) .live-feed-browser-list {
+  flex: 1 1 auto;
+  height: 100%;
+}
+
 .live-feed-mode.expanded .live-feed-browser-list {
   height: 100%;
   min-height: 0;
   max-height: none;
   overflow: auto;
   padding-right: 4px;
+  overscroll-behavior: contain;
+  transform: translateZ(0);
+  backface-visibility: hidden;
 }
 
 .live-feed-browser-post {
@@ -2188,8 +2207,7 @@ select:focus {
   inset: 0;
   border: 0;
   padding: 0;
-  background: rgba(15, 23, 42, 0.56);
-  backdrop-filter: blur(10px);
+  background: rgba(15, 23, 42, 0.68);
 }
 
 .live-feed-overlay-frame {
@@ -2198,6 +2216,26 @@ select:focus {
   width: min(1180px, calc(100vw - 48px));
   height: min(92vh, calc(100vh - 48px));
   max-height: calc(100vh - 48px);
+  transform: translateZ(0);
+}
+
+.live-feed-overlay-close {
+  position: absolute;
+  top: 24px;
+  right: 24px;
+  z-index: 2;
+  display: flex;
+  justify-content: flex-end;
+  pointer-events: none;
+}
+
+.live-feed-overlay-close .ghost-button {
+  pointer-events: auto;
+  border-color: rgba(15, 118, 110, 0.16);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow:
+    0 18px 32px rgba(15, 23, 42, 0.14),
+    0 4px 12px rgba(15, 23, 42, 0.08);
 }
 
 .preview-card-grid {
@@ -2882,6 +2920,11 @@ select:focus {
     max-height: calc(100vh - 40px);
   }
 
+  .live-feed-overlay-close {
+    top: 20px;
+    right: 20px;
+  }
+
 }
 
 @media (max-width: 760px) {
@@ -2980,6 +3023,11 @@ select:focus {
     max-height: calc(100vh - 28px);
   }
 
+  .live-feed-overlay-close {
+    top: 14px;
+    right: 14px;
+  }
+
   .preview-card {
     grid-template-columns: 72px minmax(0, 1fr);
   }
@@ -3005,5 +3053,64 @@ select:focus {
 
   .state-block {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-height: 820px) {
+  body {
+    overflow: auto;
+  }
+
+  .app-frame {
+    height: auto;
+    min-height: 100vh;
+    overflow: visible;
+  }
+
+  .app-page {
+    height: auto;
+    min-height: calc(100vh - 32px);
+  }
+
+  .workspace-layout,
+  .workspace-main,
+  .workflow-surface--guided,
+  .utility-view-panel {
+    min-height: auto;
+    height: auto;
+  }
+
+  .utility-view-panel {
+    overflow: visible;
+  }
+
+  .guided-step-panel--viewport {
+    min-height: auto;
+    height: auto;
+    max-height: none;
+    overflow: visible;
+  }
+
+  .guided-step-panel--viewport .guided-step-body {
+    overflow: visible;
+    padding-right: 0;
+  }
+
+  .app-frame--live-feed-collapsed {
+    height: 100vh;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .app-frame--live-feed-collapsed .app-page,
+  .workspace-layout--live-feed-collapsed,
+  .workspace-main--live-feed-collapsed,
+  .utility-view-panel--live-feed {
+    min-height: 0;
+    height: 100%;
+  }
+
+  .utility-view-panel--live-feed {
+    overflow: hidden;
   }
 }

@@ -9,6 +9,7 @@ import type { FeedPreviewItem } from '../utils/feedPreview';
 type LiveFeedItemsListProps = {
   items: FeedPreviewItem[];
   fallbackSource?: string;
+  isExpanded?: boolean;
 };
 
 function formatPreviewTime(value?: string): string | undefined {
@@ -47,11 +48,13 @@ const FeedCard = memo(function FeedCard({
   item,
   fallbackSource,
   index,
+  isExpanded = false,
   onMeasure,
 }: {
   item: FeedPreviewItem;
   fallbackSource?: string;
   index: number;
+  isExpanded?: boolean;
   onMeasure?: (index: number, height: number) => void;
 }) {
   const articleRef = useRef<HTMLElement | null>(null);
@@ -112,9 +115,9 @@ const FeedCard = memo(function FeedCard({
           <img
             src={item.imageUrl}
             alt=""
-            loading="lazy"
+            loading={isExpanded ? 'eager' : 'lazy'}
             decoding="async"
-            fetchPriority="low"
+            fetchPriority={isExpanded && index < 6 ? 'high' : 'low'}
           />
         </div>
       ) : null}
@@ -125,6 +128,7 @@ const FeedCard = memo(function FeedCard({
 export default function LiveFeedItemsList({
   items,
   fallbackSource,
+  isExpanded = false,
 }: LiveFeedItemsListProps) {
   return (
     <div className="live-feed-browser-list" role="list" aria-label="Live feed items">
@@ -134,6 +138,7 @@ export default function LiveFeedItemsList({
           item={item}
           fallbackSource={fallbackSource}
           index={index}
+          isExpanded={isExpanded}
         />
       ))}
     </div>

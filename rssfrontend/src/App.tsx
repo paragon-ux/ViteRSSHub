@@ -927,7 +927,7 @@ export default function App() {
   );
 
   const liveFeedSurface = liveFeedContext ? (
-    <section className="panel panel--primary utility-view-panel">
+    <section className="panel panel--primary utility-view-panel utility-view-panel--live-feed">
       <LiveFeedMode
         feedUrl={liveFeedContext.feedUrl}
         mode={liveFeedContext.feedUrl ? 'ready' : 'pending_input'}
@@ -970,9 +970,10 @@ export default function App() {
         ? 'library'
         : 'home'
       : activeSection;
+  const isCollapsedLiveFeedView = activeSection === 'live-feed' && !isLiveFeedExpanded;
 
   return (
-    <div className="app-frame">
+    <div className={`app-frame ${isCollapsedLiveFeedView ? 'app-frame--live-feed-collapsed' : ''}`}>
       <main className="app-page">
         <header className="app-topbar">
           <div className="brand brand--topbar">
@@ -1003,8 +1004,8 @@ export default function App() {
           </div>
         </header>
 
-        <div className="workspace-layout">
-          <section className="workspace-main">
+        <div className={`workspace-layout ${isCollapsedLiveFeedView ? 'workspace-layout--live-feed-collapsed' : ''}`}>
+          <section className={`workspace-main ${isCollapsedLiveFeedView ? 'workspace-main--live-feed-collapsed' : ''}`}>
             {activeSection === 'home'
               ? mainHomeSurface
               : activeSection === 'live-feed'
