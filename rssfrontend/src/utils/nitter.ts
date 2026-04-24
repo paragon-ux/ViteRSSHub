@@ -12,5 +12,14 @@ export function buildNitterUserFeed(baseUrl: string, username: string): string {
 export function isProbablyNitterUrl(value: string): boolean {
   const normalized = value.trim().toLowerCase();
 
-  return normalized.includes('nitter') || normalized.endsWith('/rss');
+  if (normalized.includes('nitter')) {
+    return true;
+  }
+
+  try {
+    const parsed = new URL(normalized);
+    return parsed.hostname.includes('nitter');
+  } catch {
+    return false;
+  }
 }

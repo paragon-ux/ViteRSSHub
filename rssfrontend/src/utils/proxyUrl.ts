@@ -1,5 +1,5 @@
 const DEV_PROXY_PREFIX = '/rsshub-api';
-const EXTERNAL_PREVIEW_PROXY_PREFIX = '/preview-proxy';
+const EXTERNAL_FEED_FETCH_PREFIX = '/feed-fetch';
 
 function isAbsoluteHttpUrl(value: string): boolean {
   return /^https?:\/\//i.test(value);
@@ -33,7 +33,7 @@ export function toProxyUrl(url: string): string {
       return `${DEV_PROXY_PREFIX}${parsed.pathname}${parsed.search}${parsed.hash}`;
     }
 
-    return `${EXTERNAL_PREVIEW_PROXY_PREFIX}?source=${encodeURIComponent(url)}`;
+    return `${EXTERNAL_FEED_FETCH_PREFIX}?source=${encodeURIComponent(url)}`;
   } catch {
     return url;
   }

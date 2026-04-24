@@ -46,10 +46,6 @@ function formatFeedCount(totalItems: number): string {
   return `${totalItems} item${totalItems === 1 ? '' : 's'} in feed`;
 }
 
-function formatShownCount(shownItems: number): string {
-  return `Showing ${shownItems}`;
-}
-
 function getStatePill(options: {
   mode: LiveFeedModeProps['mode'];
   isLoading: boolean;
@@ -190,6 +186,7 @@ export default function LiveFeedMode({
     () => preview?.snapshot.feedTitle || feedLabel || route?.title || 'Live feed',
     [feedLabel, preview?.snapshot.feedTitle, route?.title]
   );
+  const feedDescription = preview?.snapshot.feedDescription;
   const displayedItems = useMemo(() => {
     if (!displayLimit) {
       return items;
@@ -343,9 +340,10 @@ export default function LiveFeedMode({
         description={
           isExpanded
             ? undefined
-            : hasPendingChanges
-            ? 'Showing the last applied feed. Apply the latest inputs in the workflow to refresh it.'
-            : 'Browse the current feed in a dedicated view.'
+            : feedDescription ||
+              (hasPendingChanges
+                ? 'Showing the last applied values.'
+                : 'Browse the current feed.')
         }
         actions={
           isExpanded
@@ -370,19 +368,6 @@ export default function LiveFeedMode({
 
       {!isExpanded ? (
         <div className="live-feed-mode-toolbar">
-          <div className="preview-meta">
-            <span className={statePill.className}>{statePill.label}</span>
-            {totalItems > shownItems ? (
-              <span className="badge subtle">{formatShownCount(shownItems)}</span>
-            ) : null}
-            {preview?.status ? (
-              <span className="badge subtle">Status {preview.status}</span>
-            ) : null}
-            {preview?.snapshot.homeUrl ? (
-              <span className="badge subtle">Feed source available</span>
-            ) : null}
-          </div>
-
           <div className="builder-actions">
             <button
               type="button"
@@ -401,7 +386,7 @@ export default function LiveFeedMode({
               className={`ghost-button ${!feedUrl ? 'disabled' : ''}`}
             >
               <ExternalLink size={16} />
-              <span>Open raw feed</span>
+              <span>Open raw</span>
             </a>
 
             {route && onSaveFeed ? (
@@ -445,8 +430,27 @@ export default function LiveFeedMode({
         </div>
       ) : null}
 
-      <div className={`live-feed-browser ${isExpanded ? 'expanded' : ''}`}>
-        {renderState()}
+      <div className={`live-feed-browser-shell ${isExpanded ? 'expanded' : ''}`}>
+        <div className="live-feed-browser-header">
+          <div className="live-feed-browser-heading">
+            <span className="panel-eyebrow">Latest items</span>
+            <h3>{resolvedFeedTitle}</h3>
+          </div>
+
+          <div className="preview-meta">
+            <span className={statePill.className}>{statePill.label}</span>
+            {shownItems ? (
+              <span className="badge subtle">
+                Showing {shownItems}
+                {totalItems > shownItems ? ` of ${totalItems}` : ''}
+              </span>
+            ) : null}
+          </div>
+        </div>
+
+        <div className={`live-feed-browser ${isExpanded ? 'expanded' : ''}`}>
+          {renderState()}
+        </div>
       </div>
     </section>
   );

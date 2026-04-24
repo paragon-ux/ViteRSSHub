@@ -106,9 +106,9 @@ export default function FeedBuilder({
       <form className="guided-step-form" onSubmit={handleSubmit}>
         <div className="guided-step-header">
           <div className="guided-step-copy">
-            <span className="guided-step-eyebrow">Step 2</span>
+            <span className="guided-step-eyebrow">Required inputs</span>
             <h3>Required path parameters</h3>
-            <p>Fill the required fields, then apply once.</p>
+            <p>Fill the required fields and apply the feed URL.</p>
           </div>
 
           <div className="guided-step-header-actions">
@@ -218,9 +218,9 @@ export default function FeedBuilder({
                   </div>
                 </>
               ) : (
-                <div className="builder-empty-note">
+              <div className="builder-empty-note">
                   <p>This route does not need required path parameters. Apply once to continue.</p>
-                </div>
+              </div>
               )}
 
               {composer.builderNotice ? (
@@ -246,7 +246,7 @@ export default function FeedBuilder({
                   ) : (
                     <>
                       <ArrowRight size={14} />
-                      <span>Apply to update the live feed.</span>
+                      <span>Apply to update the feed URL.</span>
                     </>
                   )}
                 </span>

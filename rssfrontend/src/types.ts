@@ -97,6 +97,12 @@ export type SavedFeed = {
   label: string;
   url: string;
   routeId: string;
+  kind?: 'rsshub' | 'native' | 'file';
+  homeUrl?: string;
+  iconUrl?: string;
+  importedText?: string;
+  importedContentType?: string;
+  fileName?: string;
   createdAt: number;
 };
 

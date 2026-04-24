@@ -1,11 +1,12 @@
 import { ArrowUpRight, Copy, Download, ListFilter, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import type { SavedFeed } from '../types';
+import type { RouteItem, SavedFeed } from '../types';
 import PanelHeader from './PanelHeader';
 import StateBlock from './StateBlock';
 
 type SavedFeedsProps = {
   feeds: SavedFeed[];
+  routeLookup?: Map<string, RouteItem>;
   activeFeedId?: string;
   onDeleteFeed: (id: string) => void;
   onOpenFeed: (feed: SavedFeed) => void;
@@ -50,6 +51,7 @@ function formatSavedAt(timestamp: number): string {
 
 export default function SavedFeeds({
   feeds,
+  routeLookup,
   activeFeedId,
   onDeleteFeed,
   onOpenFeed,
@@ -86,7 +88,7 @@ export default function SavedFeeds({
       <PanelHeader
         eyebrow="Library"
         title="Saved feeds"
-        description="Keep reusable feeds close, then open the selected entry in the dedicated live-feed view."
+        description="Reopen, copy, or export saved feeds."
         actions={
           <>
             <button
@@ -116,11 +118,18 @@ export default function SavedFeeds({
         <StateBlock
           title="No saved feeds yet"
           message="Build a route and save it here to keep a reusable local subscription list."
+          compact
         />
       ) : (
-        <div className="saved-library-list saved-library-list--compact" role="list" aria-label="Saved feeds">
+        <div
+          className="saved-library-list saved-library-list--compact"
+          role="list"
+          aria-label="Saved feeds"
+        >
           {sortedFeeds.map((feed) => {
             const isActive = feed.id === activeFeedId;
+            const route = routeLookup?.get(feed.routeId);
+            const routeLabel = route?.sourceTitle || route?.namespace;
 
             return (
               <article
@@ -134,12 +143,24 @@ export default function SavedFeeds({
                   onClick={() => onOpenFeed(feed)}
                 >
                   <div className="saved-feed-content">
-                    <div className="saved-feed-meta">
-                      <span className="badge subtle">Saved {formatSavedAt(feed.createdAt)}</span>
-                      {isActive ? <span className="badge">Open</span> : null}
+                    <div className="saved-feed-topline">
+                      {routeLabel ? (
+                        <span className="saved-feed-kicker">{routeLabel}</span>
+                      ) : null}
+                      {route?.routePath ? (
+                        <span className="badge subtle">{route.routePath}</span>
+                      ) : null}
+                      <span className="saved-feed-timestamp">
+                        Saved {formatSavedAt(feed.createdAt)}
+                      </span>
                     </div>
-                    <h3>{feed.label}</h3>
-                    <p>{feed.url}</p>
+
+                    <div className="saved-feed-title-row">
+                      <h3>{feed.label}</h3>
+                      {isActive ? <span className="saved-feed-state">Open</span> : null}
+                    </div>
+
+                    <p className="saved-feed-url">{feed.url}</p>
                   </div>
                 </button>
 

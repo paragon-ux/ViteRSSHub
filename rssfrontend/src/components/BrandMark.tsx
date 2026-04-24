@@ -17,13 +17,17 @@ export default function BrandMark({
       fill="none"
     >
       <defs>
-        <linearGradient id="brand-bg" x1="10" y1="10" x2="54" y2="54" gradientUnits="userSpaceOnUse">
+        <linearGradient id="brand-bg" x1="8" y1="8" x2="56" y2="56" gradientUnits="userSpaceOnUse">
           <stop stopColor="#0F766E" />
-          <stop offset="1" stopColor="#155E57" />
+          <stop offset="1" stopColor="#0B4F49" />
         </linearGradient>
-        <linearGradient id="brand-sheen" x1="18" y1="14" x2="46" y2="48" gradientUnits="userSpaceOnUse">
-          <stop stopColor="#F7F3EC" stopOpacity="0.42" />
+        <linearGradient id="brand-sheen" x1="18" y1="14" x2="48" y2="50" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#ECFDF7" stopOpacity="0.44" />
           <stop offset="1" stopColor="#F7F3EC" stopOpacity="0" />
+        </linearGradient>
+        <linearGradient id="brand-arc" x1="20" y1="18" x2="45" y2="45" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#F7F3EC" />
+          <stop offset="1" stopColor="#BEE6DA" />
         </linearGradient>
       </defs>
 
@@ -38,35 +42,26 @@ export default function BrandMark({
         opacity="0.9"
       />
 
-      <circle cx="18" cy="18.5" r="4.4" fill="#F7F3EC" />
-      <circle cx="42.5" cy="18.5" r="4" fill="#CDECE5" />
       <path
-        d="M22.4 18.5h8.8c6.8 0 12.3 5.5 12.3 12.3v1.8"
-        stroke="#D7EFE9"
-        strokeWidth="3.6"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-
-      <circle cx="21" cy="51" r="3.7" fill="#F7F3EC" />
-      <path
-        d="M21 43.8c4 0 7.6-1.6 10.2-4.2"
-        stroke="#BFE5DD"
-        strokeWidth="3.2"
+        d="M19 45.5c0-14.1 11.4-25.5 25.5-25.5"
+        stroke="url(#brand-arc)"
+        strokeWidth="4.6"
         strokeLinecap="round"
       />
       <path
-        d="M21 43.5c0-5.7 4.6-10.3 10.3-10.3"
+        d="M19 35.7c0-8.7 7-15.7 15.7-15.7"
         stroke="#F7F3EC"
-        strokeWidth="4.2"
+        strokeWidth="4.8"
         strokeLinecap="round"
       />
       <path
-        d="M21 51c0-10.2 8.3-18.5 18.5-18.5"
-        stroke="#D7EFE9"
-        strokeWidth="3.6"
+        d="M19 26c0-3.7 3-6.7 6.7-6.7"
+        stroke="#CFEDE5"
+        strokeWidth="4.8"
         strokeLinecap="round"
       />
+      <circle cx="19" cy="45.5" r="4.4" fill="#F7F3EC" />
+      <circle cx="45" cy="20.2" r="3.3" fill="#CDECE5" />
     </svg>
   );
 }

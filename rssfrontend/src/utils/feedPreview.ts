@@ -6,15 +6,20 @@ export type FeedPreviewItem = {
   title: string;
   link?: string;
   source?: string;
+  author?: string;
   publishedAt?: string;
+  description?: string;
   summary?: string;
+  content?: string;
   imageUrl?: string;
+  mediaType?: string;
 };
 
 export type FeedPreviewSnapshot = {
   feedTitle?: string;
   feedDescription?: string;
   homeUrl?: string;
+  feedImageUrl?: string;
   totalItems: number;
   items: FeedPreviewItem[];
 };
@@ -190,6 +195,21 @@ function firstDefinedString(...values: unknown[]): string | undefined {
   return undefined;
 }
 
+function getProductErrorMessage(body: unknown): string | undefined {
+  const record = asRecord(body);
+  if (!record) {
+    return undefined;
+  }
+
+  return firstDefinedString(
+    record.message,
+    record.detail,
+    record.description,
+    record.errorMessage,
+    getNestedValue(record, ['error', 'message'])
+  );
+}
+
 function collapseWhitespace(value: string): string {
   return value.replace(/\s+/g, ' ').trim();
 }
@@ -236,7 +256,33 @@ function extractImageFromHtml(value?: string): string | undefined {
   return match?.[1];
 }
 
-function getJsonItemImage(value: unknown): string | undefined {
+function resolvePreviewAssetUrl(value: string | undefined, baseUrl?: string): string | undefined {
+  if (!value?.trim()) {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+
+  if (/^https?:\/\//i.test(trimmed)) {
+    return trimmed;
+  }
+
+  if (trimmed.startsWith('//')) {
+    return `https:${trimmed}`;
+  }
+
+  if (!baseUrl) {
+    return trimmed;
+  }
+
+  try {
+    return new URL(trimmed, baseUrl).toString();
+  } catch {
+    return trimmed;
+  }
+}
+
+function getJsonItemImage(value: unknown, baseUrl?: string): string | undefined {
   const record = asRecord(value);
   if (!record) {
     return undefined;
@@ -256,7 +302,7 @@ function getJsonItemImage(value: unknown): string | undefined {
   );
 
   if (direct) {
-    return direct;
+    return resolvePreviewAssetUrl(direct, baseUrl);
   }
 
   const attachments = Array.isArray(record.attachments) ? record.attachments : [];
@@ -273,24 +319,67 @@ function getJsonItemImage(value: unknown): string | undefined {
 
     const url = firstDefinedString(attachmentRecord.url, attachmentRecord.href);
     if (url) {
-      return url;
+      return resolvePreviewAssetUrl(url, baseUrl);
     }
   }
 
-  return extractImageFromHtml(
+  return resolvePreviewAssetUrl(
+    extractImageFromHtml(
+      firstDefinedString(
+        record.description,
+        record.summary,
+        record.content_html,
+        record.content
+      )
+    ),
+    baseUrl
+  );
+}
+
+function getJsonItemMediaType(value: unknown): string | undefined {
+  const record = asRecord(value);
+  if (!record) {
+    return undefined;
+  }
+
+  return firstDefinedString(
+    record.mediaType,
+    record.media_type,
+    record.mimeType,
+    record.mime_type,
+    getNestedValue(record, ['enclosure', 'type']),
+    getNestedValue(record, ['media:content', '$', 'type']),
+    getNestedValue(record, ['media', 'content', 'type'])
+  );
+}
+
+function getJsonFeedImage(value: unknown, baseUrl?: string): string | undefined {
+  const record = asRecord(value);
+  if (!record) {
+    return undefined;
+  }
+
+  return resolvePreviewAssetUrl(
     firstDefinedString(
-      record.description,
-      record.summary,
-      record.content_html,
-      record.content
-    )
+      record.icon,
+      record.favicon,
+      record.logo,
+      record.image,
+      record.imageUrl,
+      getNestedValue(record, ['feed', 'icon']),
+      getNestedValue(record, ['feed', 'image']),
+      getNestedValue(record, ['channel', 'image', 'url']),
+      getNestedValue(record, ['channel', 'image'])
+    ),
+    baseUrl
   );
 }
 
 function normalizeJsonItem(
   value: unknown,
   index: number,
-  feedTitle?: string
+  feedTitle?: string,
+  baseUrl?: string
 ): FeedPreviewItem | null {
   const record = asRecord(value);
   if (!record) {
@@ -325,13 +414,20 @@ function normalizeJsonItem(
     record.isoDate,
     record.date
   );
+  const rawDescription = firstDefinedString(
+    record.description,
+    record.excerpt
+  );
   const rawSummary = firstDefinedString(
     record.summary,
-    record.description,
+    rawDescription,
+    record.excerpt
+  );
+  const rawContent = firstDefinedString(
     record.content_html,
     record.content_text,
     record.content,
-    record.excerpt
+    rawSummary
   );
 
   return {
@@ -339,13 +435,17 @@ function normalizeJsonItem(
     title,
     link,
     source,
+    author: firstDefinedString(getNestedValue(record, ['author', 'name']), record.author),
     publishedAt,
-    summary: summarizeText(rawSummary),
-    imageUrl: getJsonItemImage(record),
+    description: summarizeText(rawDescription, 220),
+    summary: summarizeText(rawSummary, 220),
+    content: summarizeText(rawContent, 900),
+    imageUrl: getJsonItemImage(record, baseUrl),
+    mediaType: getJsonItemMediaType(record),
   };
 }
 
-function parseJsonPreview(body: unknown): FeedPreviewSnapshot {
+function parseJsonPreview(body: unknown, baseUrl?: string): FeedPreviewSnapshot {
   const record = asRecord(body);
   if (!record) {
     return { totalItems: 0, items: [] };
@@ -376,27 +476,61 @@ function parseJsonPreview(body: unknown): FeedPreviewSnapshot {
     record.site_url,
     getNestedValue(record, ['channel', 'link'])
   );
+  const feedImageUrl = getJsonFeedImage(record, baseUrl);
 
   const items = itemsValue
-    .map((item, index) => normalizeJsonItem(item, index, feedTitle))
+    .map((item, index) => normalizeJsonItem(item, index, feedTitle, baseUrl))
     .filter((item): item is FeedPreviewItem => Boolean(item));
 
   return {
     feedTitle,
     feedDescription,
     homeUrl,
+    feedImageUrl,
     totalItems: items.length,
     items,
   };
 }
 
-function getXmlText(parent: Element | undefined, tagNames: string[]): string | undefined {
+function matchesXmlTag(element: Element, tagName: string): boolean {
+  const target = tagName.toLowerCase();
+  const localTarget = target.split(':').pop() ?? target;
+  const names = [
+    element.tagName,
+    element.nodeName,
+    element.localName,
+    element.tagName.split(':').pop(),
+    element.nodeName.split(':').pop(),
+  ]
+    .filter((name): name is string => Boolean(name))
+    .map((name) => name.toLowerCase());
+
+  return names.includes(target) || names.includes(localTarget);
+}
+
+function getXmlElements(
+  parent: Document | Element | undefined,
+  tagNames: string[]
+): Element[] {
+  if (!parent) {
+    return [];
+  }
+
+  return Array.from(parent.getElementsByTagName('*')).filter((element) =>
+    tagNames.some((tagName) => matchesXmlTag(element, tagName))
+  );
+}
+
+function getXmlText(
+  parent: Document | Element | undefined,
+  tagNames: string[]
+): string | undefined {
   if (!parent) {
     return undefined;
   }
 
   for (const tagName of tagNames) {
-    const match = parent.getElementsByTagName(tagName)[0];
+    const match = getXmlElements(parent, [tagName])[0];
     const value = match?.textContent ? collapseWhitespace(match.textContent) : '';
     if (value) {
       return value;
@@ -406,16 +540,24 @@ function getXmlText(parent: Element | undefined, tagNames: string[]): string | u
   return undefined;
 }
 
-function getXmlLink(parent: Element | undefined): string | undefined {
+function getXmlLink(parent: Document | Element | undefined): string | undefined {
   if (!parent) {
     return undefined;
   }
 
-  const links = Array.from(parent.getElementsByTagName('link'));
+  const links = getXmlElements(parent, ['link']);
+  let fallback: string | undefined;
+
   for (const link of links) {
     const href = link.getAttribute('href');
     if (href?.trim()) {
-      return href.trim();
+      const rel = link.getAttribute('rel')?.trim().toLowerCase();
+      if (!rel || rel === 'alternate') {
+        return href.trim();
+      }
+
+      fallback = fallback ?? href.trim();
+      continue;
     }
 
     const text = link.textContent ? collapseWhitespace(link.textContent) : '';
@@ -424,14 +566,14 @@ function getXmlLink(parent: Element | undefined): string | undefined {
     }
   }
 
-  return undefined;
+  return fallback;
 }
 
-function getXmlImage(item: Element): string | undefined {
+function getXmlMedia(item: Element): { url?: string; type?: string } {
   const selectors = ['media:content', 'media:thumbnail', 'thumbnail', 'enclosure'];
 
   for (const selector of selectors) {
-    const element = item.getElementsByTagName(selector)[0];
+    const element = getXmlElements(item, [selector])[0];
     if (!element) {
       continue;
     }
@@ -443,16 +585,55 @@ function getXmlImage(item: Element): string | undefined {
 
     const url = element.getAttribute('url') ?? element.getAttribute('href');
     if (url?.trim()) {
-      return url.trim();
+      return {
+        url: url.trim(),
+        type: type?.trim(),
+      };
     }
   }
 
-  return extractImageFromHtml(
-    getXmlText(item, ['description', 'content:encoded', 'content', 'summary'])
+  return {};
+}
+
+function getXmlImage(item: Element, baseUrl?: string): string | undefined {
+  const media = getXmlMedia(item);
+  if (media.url) {
+    return resolvePreviewAssetUrl(media.url, baseUrl);
+  }
+
+  return resolvePreviewAssetUrl(
+    extractImageFromHtml(
+      getXmlText(item, ['description', 'content:encoded', 'content', 'summary'])
+    ),
+    baseUrl
   );
 }
 
-function parseXmlPreview(rawText: string): FeedPreviewSnapshot | null {
+function getXmlFeedImage(
+  parent: Document | Element | undefined,
+  baseUrl?: string
+): string | undefined {
+  if (!parent) {
+    return undefined;
+  }
+
+  const imageElement = getXmlElements(parent, ['image', 'logo', 'icon'])[0];
+  if (!imageElement) {
+    return undefined;
+  }
+
+  return resolvePreviewAssetUrl(
+    firstDefinedString(
+      imageElement.getAttribute('href'),
+      imageElement.getAttribute('url'),
+      getXmlText(imageElement, ['url']),
+      imageElement.textContent
+    ),
+    baseUrl
+  );
+}
+
+function parseXmlPreview(rawText: string, baseUrl?: string): FeedPreviewSnapshot | null {
   const parser = new DOMParser();
   const document = parser.parseFromString(rawText, 'application/xml');
 
@@ -460,21 +641,28 @@ function parseXmlPreview(rawText: string): FeedPreviewSnapshot | null {
     return null;
   }
 
-  const channel = document.getElementsByTagName('channel')[0];
-  const feed = document.getElementsByTagName('feed')[0];
+  const channel = getXmlElements(document, ['channel'])[0];
+  const feed = getXmlElements(document, ['feed'])[0];
   const feedTitle = getXmlText(channel, ['title']) || getXmlText(feed, ['title']);
   const feedDescription =
     getXmlText(channel, ['description']) ||
     getXmlText(feed, ['subtitle', 'summary']);
   const homeUrl = getXmlLink(channel) || getXmlLink(feed);
-  const nodes = Array.from(document.getElementsByTagName('item'));
-  const entries = nodes.length ? nodes : Array.from(document.getElementsByTagName('entry'));
+  const feedImageUrl = getXmlFeedImage(channel, baseUrl) || getXmlFeedImage(feed, baseUrl);
+  const nodes = getXmlElements(document, ['item']);
+  const entries = nodes.length ? nodes : getXmlElements(document, ['entry']);
 
   const items = entries.map((entry, index) => {
     const title = getXmlText(entry, ['title']) || `Item ${index + 1}`;
-    const summary = summarizeText(
-      getXmlText(entry, ['description', 'content:encoded', 'summary', 'content'])
-    );
+    const rawDescription = getXmlText(entry, ['description', 'summary']);
+    const rawContent = getXmlText(entry, [
+      'description',
+      'content:encoded',
+      'encoded',
+      'summary',
+      'content',
+    ]);
+    const media = getXmlMedia(entry);
 
     return {
       id:
@@ -484,9 +672,13 @@ function parseXmlPreview(rawText: string): FeedPreviewSnapshot | null {
       title,
       link: getXmlLink(entry),
       source: getXmlText(entry, ['author', 'dc:creator']) || feedTitle,
+      author: getXmlText(entry, ['author', 'dc:creator']),
       publishedAt: getXmlText(entry, ['pubDate', 'published', 'updated']),
-      summary,
-      imageUrl: getXmlImage(entry),
+      description: summarizeText(rawDescription, 220),
+      summary: summarizeText(rawDescription || rawContent, 220),
+      content: summarizeText(rawContent, 900),
+      imageUrl: getXmlImage(entry, baseUrl),
+      mediaType: media.type,
     };
   });
 
@@ -494,8 +686,50 @@ function parseXmlPreview(rawText: string): FeedPreviewSnapshot | null {
     feedTitle,
     feedDescription,
     homeUrl,
+    feedImageUrl,
     totalItems: items.length,
     items,
+  };
+}
+
+export function parseFeedPreviewFromText(options: {
+  rawText: string;
+  sourceUrl: string;
+  contentType?: string;
+}): FeedPreviewResult {
+  const body: unknown = (() => {
+    try {
+      return JSON.parse(options.rawText);
+    } catch {
+      return options.rawText;
+    }
+  })();
+  const snapshot =
+    typeof body === 'string'
+      ? parseXmlPreview(options.rawText, options.sourceUrl)
+      : parseJsonPreview(body, options.sourceUrl);
+  const state: FeedPreviewState =
+    !snapshot ? 'parse_failed' : snapshot.items.length ? 'success' : 'empty';
+  const note =
+    state === 'parse_failed'
+      ? getParseFailureNote({
+          sourceUrl: options.sourceUrl,
+          rawText: options.rawText,
+          contentType: options.contentType,
+        })
+      : undefined;
+
+  return {
+    status: 200,
+    statusText: 'OK',
+    contentType: options.contentType,
+    body,
+    rawText: options.rawText,
+    sourceUrl: options.sourceUrl,
+    requestUrl: options.sourceUrl,
+    snapshot: snapshot ?? { totalItems: 0, items: [] },
+    state,
+    note,
   };
 }
 
@@ -504,7 +738,26 @@ async function requestPreview(
   signal?: AbortSignal
 ): Promise<FeedPreviewResult> {
   const requestUrl = toProxyUrl(sourceUrl);
-  const response = await fetch(requestUrl, { signal });
+  let response: Response;
+
+  try {
+    response = await fetch(requestUrl, { signal });
+  } catch (unknownError) {
+    const message = isProbablyNitterUrl(sourceUrl)
+      ? 'Unable to fetch this Nitter feed through the app. Open the raw feed directly or retry the same-origin feed fetch path.'
+      : unknownError instanceof Error
+        ? unknownError.message
+        : 'Unable to fetch this feed preview.';
+
+    throw new FeedPreviewRequestError({
+      message,
+      status: 0,
+      statusText: 'Fetch failed',
+      sourceUrl,
+      requestUrl,
+    });
+  }
+
   const rawText = await response.text();
   const contentType = response.headers.get('content-type') ?? undefined;
 
@@ -517,13 +770,17 @@ async function requestPreview(
 
   if (!response.ok) {
     let message =
+      getProductErrorMessage(body) ||
       summarizeText(typeof body === 'string' ? body : JSON.stringify(body)) ||
       `Preview request failed with ${response.status} ${response.statusText}`;
 
     if (isProbablyNitterUrl(sourceUrl)) {
       if (response.status === 403 || response.status === 429 || response.status === 503) {
         message =
-          'The selected Nitter instance blocked or throttled preview requests. The raw feed may still open, but in-page preview needs an instance that allows proxy fetches.';
+          'The selected Nitter instance blocked or throttled feed requests. The raw feed may still open, but in-page preview needs an instance that allows the app to fetch it server-side.';
+      } else if (response.status >= 500) {
+        message =
+          'The selected Nitter instance returned a server error to the app feed fetch path. Try reloading, open the raw feed, or switch to a different Nitter base URL.';
       } else if (looksLikeHtml(rawText, contentType)) {
         message =
           'The selected Nitter instance returned an HTML page instead of an RSS response, so in-page preview could not load.';
@@ -539,14 +796,19 @@ async function requestPreview(
     });
   }
 
+  const resolvedSourceUrl =
+    response.headers.get('x-rsshubvite-final-url')?.trim() || sourceUrl;
+
   const snapshot =
-    typeof body === 'string' ? parseXmlPreview(rawText) : parseJsonPreview(body);
+    typeof body === 'string'
+      ? parseXmlPreview(rawText, resolvedSourceUrl)
+      : parseJsonPreview(body, resolvedSourceUrl);
   const state: FeedPreviewState =
     !snapshot ? 'parse_failed' : snapshot.items.length ? 'success' : 'empty';
   const note =
     state === 'parse_failed'
       ? getParseFailureNote({
-          sourceUrl,
+          sourceUrl: resolvedSourceUrl,
           rawText,
           contentType,
         })
@@ -558,7 +820,7 @@ async function requestPreview(
     contentType,
     body,
     rawText,
-    sourceUrl,
+    sourceUrl: resolvedSourceUrl,
     requestUrl,
     snapshot: snapshot ?? { totalItems: 0, items: [] },
     state,
@@ -568,7 +830,9 @@ async function requestPreview(
 
 export async function fetchFeedPreview(
   feedUrl: string,
-  options: { signal?: AbortSignal } = {}
+  options: {
+    signal?: AbortSignal;
+  } = {}
 ): Promise<FeedPreviewResult> {
   const previewUrl = toPreviewUrl(feedUrl);
 
