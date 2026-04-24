@@ -1,4 +1,4 @@
-import { toProxyUrl } from './proxyUrl';
+import { toProxyUrl } from './proxyUrl.js';
 
 export type DiscoveredFeedCandidate = {
   url: string;
@@ -92,6 +92,30 @@ function prettifyUrl(value: string): string {
   }
 }
 
+function parseTagAttributes(tagSource: string): Record<string, string> {
+  const attributes: Record<string, string> = {};
+  const attributePattern = /([^\s"'<>/=]+)\s*=\s*("([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/g;
+  let match: RegExpExecArray | null = null;
+
+  while ((match = attributePattern.exec(tagSource))) {
+    const [, rawName, , doubleQuoted, singleQuoted, bareValue] = match;
+    attributes[rawName.toLowerCase()] = doubleQuoted ?? singleQuoted ?? bareValue ?? '';
+  }
+
+  return attributes;
+}
+
+function extractLinkTagAttributes(html: string): Record<string, string>[] {
+  return Array.from(html.matchAll(/<link\b[^>]*>/gi)).map((match) =>
+    parseTagAttributes(match[0])
+  );
+}
+
+function extractTitleFromHtml(html: string): string {
+  const match = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+  return collapseWhitespace(match?.[1] ?? '');
+}
+
 export function looksLikeUrlInput(input: string): boolean {
   const trimmed = input.trim();
 
@@ -162,49 +186,65 @@ export function parseAutodiscoveredFeeds(options: {
     };
   }
 
-  const document = new DOMParser().parseFromString(options.html, 'text/html');
-  const siteTitle = collapseWhitespace(document.querySelector('title')?.textContent ?? '');
-  const iconUrl =
-    resolveUrl(
-      document.querySelector(
+  const hasDomParser = typeof DOMParser !== 'undefined';
+  const document = hasDomParser
+    ? new DOMParser().parseFromString(options.html, 'text/html')
+    : undefined;
+  const siteTitle = hasDomParser
+    ? collapseWhitespace(document?.querySelector('title')?.textContent ?? '')
+    : extractTitleFromHtml(options.html);
+  const iconHref = hasDomParser
+    ? document?.querySelector(
         'link[rel~="icon"], link[rel="shortcut icon"], link[rel="apple-touch-icon"]'
-      )?.getAttribute('href') ?? null,
-      options.sourceUrl
-    ) ?? undefined;
-
+      )?.getAttribute('href') ?? null
+    : extractLinkTagAttributes(options.html).find((attributes) => {
+        const rel = (attributes.rel ?? '').toLowerCase();
+        return rel.includes('icon') || rel === 'shortcut icon' || rel === 'apple-touch-icon';
+      })?.href ?? null;
+  const iconUrl = resolveUrl(iconHref, options.sourceUrl) ?? undefined;
   const candidates: DiscoveredFeedCandidate[] = [];
+  const linkSources = hasDomParser
+    ? Array.from(document?.querySelectorAll('link[rel]') ?? []).map((element) => ({
+        rel: element.getAttribute('rel') ?? '',
+        type: element.getAttribute('type') ?? '',
+        href: element.getAttribute('href') ?? '',
+        title: element.getAttribute('title') ?? '',
+      }))
+    : extractLinkTagAttributes(options.html).map((attributes) => ({
+        rel: attributes.rel ?? '',
+        type: attributes.type ?? '',
+        href: attributes.href ?? '',
+        title: attributes.title ?? '',
+      }));
 
-  for (const element of Array.from(document.querySelectorAll('link[rel]'))) {
-      const relTokens = (element.getAttribute('rel') ?? '')
-        .toLowerCase()
-        .split(/\s+/)
-        .filter(Boolean);
-      const type = (element.getAttribute('type') ?? '').toLowerCase();
+  for (const element of linkSources) {
+    const relTokens = element.rel
+      .toLowerCase()
+      .split(/\s+/)
+      .filter(Boolean);
+    const type = element.type.toLowerCase();
 
-      if (!relTokens.includes('alternate') || !(type in FEED_TYPE_LABELS)) {
-        continue;
-      }
+    if (!relTokens.includes('alternate') || !(type in FEED_TYPE_LABELS)) {
+      continue;
+    }
 
-      const url = resolveUrl(element.getAttribute('href'), options.sourceUrl);
+    const url = resolveUrl(element.href, options.sourceUrl);
 
-      if (!url) {
-        continue;
-      }
+    if (!url) {
+      continue;
+    }
 
-      const title =
-        collapseWhitespace(element.getAttribute('title') ?? '') ||
-        siteTitle ||
-        prettifyUrl(url);
+    const title = collapseWhitespace(element.title) || siteTitle || prettifyUrl(url);
 
-      candidates.push({
-        url,
-        title,
-        type: FEED_TYPE_LABELS[type],
-        sourceUrl: options.sourceUrl,
-        homeUrl: options.sourceUrl,
-        iconUrl,
-        siteTitle: siteTitle || undefined,
-      });
+    candidates.push({
+      url,
+      title,
+      type: FEED_TYPE_LABELS[type],
+      sourceUrl: options.sourceUrl,
+      homeUrl: options.sourceUrl,
+      iconUrl,
+      siteTitle: siteTitle || undefined,
+    });
   }
 
   const dedupedCandidates = Array.from(

@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "target": "ES2021",
+    "lib": ["ES2021", "DOM"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "outDir": ".tmp-native-adapters",
+    "rootDir": ".",
+    "skipLibCheck": true,
+    "allowSyntheticDefaultImports": true,
+    "strict": true
+  },
+  "include": [
+    "src/utils/feedAutodiscovery.ts",
+    "src/utils/feedPreview.ts",
+    "src/utils/nativeFeedAdapters.ts",
+    "src/utils/nitter.ts",
+    "src/utils/proxyUrl.ts",
+    "src/utils/reader.ts",
+    "tests/nativeFeedAdapters.test.ts"
+  ]
+}

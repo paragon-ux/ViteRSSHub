@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 const FEED_FETCH_PATH = '/feed-fetch';
+const LOCAL_RSSHUB_FETCH_PATH = '/local-rsshub-fetch';
 const LOCAL_PROXY_TARGET = 'http://127.0.0.1:1200';
 const DEFAULT_EXTERNAL_ACCEPT = 'application/rss+xml, application/atom+xml, application/feed+json, application/xml, text/xml, text/html, application/xhtml+xml;q=0.9, */*;q=0.8';
 const EXTERNAL_FETCH_USER_AGENT = 'Mozilla/5.0 (compatible; RSSHubViteFeedFetch/1.0; +https://github.com/DIYgod/RSSHub)';
@@ -58,17 +59,18 @@ function isLoopbackHost(hostname) {
         normalized === '::1' ||
         normalized === '0.0.0.0');
 }
-function buildSourceCandidates(source) {
+function buildSourceCandidates(source, options = {}) {
     const trimmed = source.trim();
     if (!trimmed) {
         return [];
     }
+    const preferredProtocols = options.preferredProtocols ?? ['https', 'http'];
     const normalizedInput = trimmed.replace(/^\/\//, '');
     const rawCandidates = /^https?:\/\//i.test(normalizedInput)
         ? [normalizedInput]
         : URL_SCHEME_PATTERN.test(normalizedInput)
             ? [normalizedInput]
-            : [`https://${normalizedInput}`, `http://${normalizedInput}`];
+            : preferredProtocols.map((protocol) => `${protocol}://${normalizedInput}`);
     const candidates = new Set();
     for (const rawCandidate of rawCandidates) {
         try {
@@ -79,7 +81,11 @@ function buildSourceCandidates(source) {
             if (!parsed.hostname) {
                 continue;
             }
-            if (isLoopbackHost(parsed.hostname)) {
+            const isLoopback = isLoopbackHost(parsed.hostname);
+            if (options.requireLoopback && !isLoopback) {
+                continue;
+            }
+            if (!options.allowLoopback && isLoopback) {
                 continue;
             }
             candidates.add(parsed.toString());
@@ -149,6 +155,24 @@ async function fetchExternalSource(requestUrl, request) {
         clearTimeout(timeout);
     }
 }
+function writeUpstreamSuccess(response, upstreamResponse, requestUrl) {
+    return upstreamResponse.arrayBuffer().then((buffer) => {
+        response.statusCode = 200;
+        response.setHeader('Cache-Control', 'no-store');
+        response.setHeader('Content-Type', upstreamResponse.headers.get('content-type') ?? 'application/octet-stream');
+        const etag = upstreamResponse.headers.get('etag');
+        if (etag) {
+            response.setHeader('ETag', etag);
+        }
+        const lastModified = upstreamResponse.headers.get('last-modified');
+        if (lastModified) {
+            response.setHeader('Last-Modified', lastModified);
+        }
+        response.setHeader('X-RSSHubVite-Request-Url', requestUrl);
+        response.setHeader('X-RSSHubVite-Final-Url', upstreamResponse.url || requestUrl);
+        response.end(new Uint8Array(buffer));
+    });
+}
 async function handleFeedFetch(request, response) {
     const incomingUrl = new URL(request.url ?? FEED_FETCH_PATH, 'http://127.0.0.1');
     const source = incomingUrl.searchParams.get('source') ?? '';
@@ -193,21 +217,7 @@ async function handleFeedFetch(request, response) {
                 };
                 continue;
             }
-            const rawBody = new Uint8Array(await upstreamResponse.arrayBuffer());
-            response.statusCode = 200;
-            response.setHeader('Cache-Control', 'no-store');
-            response.setHeader('Content-Type', upstreamResponse.headers.get('content-type') ?? 'application/octet-stream');
-            const etag = upstreamResponse.headers.get('etag');
-            if (etag) {
-                response.setHeader('ETag', etag);
-            }
-            const lastModified = upstreamResponse.headers.get('last-modified');
-            if (lastModified) {
-                response.setHeader('Last-Modified', lastModified);
-            }
-            response.setHeader('X-RSSHubVite-Request-Url', candidate);
-            response.setHeader('X-RSSHubVite-Final-Url', upstreamResponse.url || candidate);
-            response.end(rawBody);
+            await writeUpstreamSuccess(response, upstreamResponse, candidate);
             return;
         }
         catch (unknownError) {
@@ -236,21 +246,94 @@ async function handleFeedFetch(request, response) {
         sourceUrl: lastAttemptedUrl,
     });
 }
-function attachFeedFetchMiddleware(middlewares) {
-    middlewares.use((request, response, next) => {
-        if (!request.url?.startsWith(FEED_FETCH_PATH)) {
-            next();
+async function handleLocalRsshubFetch(request, response) {
+    const incomingUrl = new URL(request.url ?? LOCAL_RSSHUB_FETCH_PATH, 'http://127.0.0.1');
+    const source = incomingUrl.searchParams.get('source') ?? '';
+    if (request.method !== 'GET') {
+        sendJson(response, 405, {
+            error: 'method_not_allowed',
+            message: 'Only GET is supported for local RSSHub fetch requests.',
+        });
+        return;
+    }
+    if (!source.trim()) {
+        sendJson(response, 400, {
+            error: 'missing_source',
+            message: 'Add a local RSSHub URL in the source query parameter.',
+        });
+        return;
+    }
+    const candidates = buildSourceCandidates(source, {
+        allowLoopback: true,
+        requireLoopback: true,
+        preferredProtocols: ['http', 'https'],
+    });
+    if (!candidates.length) {
+        sendJson(response, 400, {
+            error: 'invalid_source',
+            message: 'Enter a valid local RSSHub http or https URL that points to localhost or another loopback address.',
+        });
+        return;
+    }
+    const candidate = candidates[0];
+    try {
+        const upstreamResponse = await fetchExternalSource(candidate, request);
+        if (!upstreamResponse.ok) {
+            const rawErrorText = await upstreamResponse.text();
+            const detail = getErrorMessageFromRawText(rawErrorText);
+            sendJson(response, upstreamResponse.status, {
+                error: getUpstreamFailureError(upstreamResponse.status),
+                message: detail ||
+                    `The local RSSHub instance returned ${upstreamResponse.status} ${upstreamResponse.statusText}.`,
+                sourceUrl: upstreamResponse.url || candidate,
+                requestUrl: candidate,
+                status: upstreamResponse.status,
+                statusText: upstreamResponse.statusText,
+            });
             return;
         }
-        void handleFeedFetch(request, response).catch(() => {
-            if (response.writableEnded) {
-                return;
-            }
-            sendJson(response, 500, {
-                error: 'unexpected_feed_fetch_error',
-                message: 'An unexpected error occurred while fetching this feed through the app.',
-            });
+        await writeUpstreamSuccess(response, upstreamResponse, candidate);
+    }
+    catch (unknownError) {
+        const message = unknownError instanceof DOMException && unknownError.name === 'AbortError'
+            ? 'The local RSSHub request timed out. Make sure the instance is running and reachable.'
+            : unknownError instanceof Error && unknownError.message
+                ? `Unable to reach the local RSSHub instance: ${unknownError.message}`
+                : 'Unable to reach the local RSSHub instance.';
+        sendJson(response, 502, {
+            error: 'local_rsshub_unreachable',
+            message,
+            sourceUrl: candidate,
         });
+    }
+}
+function attachFeedFetchMiddleware(middlewares) {
+    middlewares.use((request, response, next) => {
+        if (request.url?.startsWith(FEED_FETCH_PATH)) {
+            void handleFeedFetch(request, response).catch(() => {
+                if (response.writableEnded) {
+                    return;
+                }
+                sendJson(response, 500, {
+                    error: 'unexpected_feed_fetch_error',
+                    message: 'An unexpected error occurred while fetching this feed through the app.',
+                });
+            });
+            return;
+        }
+        if (request.url?.startsWith(LOCAL_RSSHUB_FETCH_PATH)) {
+            void handleLocalRsshubFetch(request, response).catch(() => {
+                if (response.writableEnded) {
+                    return;
+                }
+                sendJson(response, 500, {
+                    error: 'unexpected_local_rsshub_fetch_error',
+                    message: 'An unexpected error occurred while reading the local RSSHub instance.',
+                });
+            });
+            return;
+        }
+        next();
     });
 }
 function sameOriginFeedFetchPlugin() {

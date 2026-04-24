@@ -3923,6 +3923,10 @@ select:focus {
   color: #1d9bf0;
 }
 
+.reader-feed-nav-icon--nitter {
+  color: #1d9bf0;
+}
+
 .reader-feed-nav-icon--threads {
   color: #111827;
 }
@@ -3933,6 +3937,14 @@ select:focus {
 
 .reader-feed-nav-icon--mastodon {
   color: #6364ff;
+}
+
+.reader-feed-nav-icon--tumblr {
+  color: #5a2d82;
+}
+
+.reader-feed-nav-icon--medium {
+  color: #0f172a;
 }
 
 .reader-feed-nav-icon--collection {
@@ -4506,6 +4518,12 @@ select:focus {
   color: #0369a1;
 }
 
+.reader-source-avatar--nitter,
+.reader-feed-icon--nitter {
+  background: rgba(14, 165, 233, 0.11);
+  color: #0369a1;
+}
+
 .reader-source-avatar--threads,
 .reader-feed-icon--threads {
   background: rgba(17, 24, 39, 0.08);
@@ -4522,6 +4540,18 @@ select:focus {
 .reader-feed-icon--mastodon {
   background: rgba(99, 102, 241, 0.12);
   color: #4f46e5;
+}
+
+.reader-source-avatar--tumblr,
+.reader-feed-icon--tumblr {
+  background: rgba(90, 45, 130, 0.12);
+  color: #5b21b6;
+}
+
+.reader-source-avatar--medium,
+.reader-feed-icon--medium {
+  background: rgba(15, 23, 42, 0.08);
+  color: #0f172a;
 }
 
 .reader-source-avatar--newsletter,

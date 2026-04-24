@@ -1,5 +1,5 @@
-import type { SavedFeed } from '../types';
-import type { FeedPreviewItem } from './feedPreview';
+import type { SavedFeed } from '../types.js';
+import type { FeedPreviewItem } from './feedPreview.js';
 
 export type ReaderSection =
   | 'all'
@@ -19,8 +19,11 @@ export type ReaderSourceKind =
   | 'youtube'
   | 'threads'
   | 'twitter'
+  | 'nitter'
   | 'reddit'
   | 'mastodon'
+  | 'tumblr'
+  | 'medium'
   | 'newsletter'
   | 'podcast'
   | 'audio'
@@ -140,9 +143,55 @@ function prettifyIdentifier(value: string): string {
     .trim();
 }
 
+function prettifyUrlSegment(value: string): string {
+  return prettifyIdentifier(value).replace(/\.(xml|atom|json)$/i, '').trim();
+}
+
 function isGenericRouteTitle(value: string): boolean {
-  return /with |handle|route|timeline|feed|rss|path parameter|user id|channel id/i.test(
-    value
+  const normalized = value.trim().toLowerCase();
+  return Boolean(
+    normalized &&
+      (/with |handle|route|timeline|path parameter|user id|channel id/i.test(normalized) ||
+        normalized === 'rss' ||
+        normalized === 'feed' ||
+        normalized === 'atom' ||
+        normalized === 'json feed' ||
+        normalized === 'rss feed' ||
+        normalized === 'atom feed')
+  );
+}
+
+export function isGenericNativeFeedTitle(value: string): boolean {
+  const normalized = value.trim().toLowerCase();
+  return Boolean(
+    normalized &&
+      (normalized === 'rss' ||
+        normalized === 'feed' ||
+        normalized === 'feeds' ||
+        normalized === 'atom' ||
+        normalized === 'xml' ||
+        normalized === 'json' ||
+        normalized === 'rss feed' ||
+        normalized === 'atom feed' ||
+        normalized === 'json feed' ||
+        normalized === 'feed xml' ||
+        normalized === 'rss xml' ||
+        normalized === 'atom xml' ||
+        normalized === 'index' ||
+        normalized === 'index xml' ||
+        normalized === 'discover' ||
+        normalized === 'videos xml' ||
+        normalized === 'feed json')
+  );
+}
+
+function isNativeLikeFeed(feed: Pick<SavedFeed, 'routeId'> & { kind?: SavedFeed['kind'] }): boolean {
+  return Boolean(
+    feed.kind === 'native' ||
+      feed.kind === 'file' ||
+      feed.routeId === 'native:rss' ||
+      feed.routeId === 'native:file' ||
+      feed.routeId.startsWith('native:')
   );
 }
 
@@ -158,10 +207,12 @@ export function getSourceKind(value: string): ReaderSourceKind {
   }
 
   if (
-    normalized.includes('nitter') ||
-    normalized.includes('twitter') ||
-    normalized.includes('x.com')
+    normalized.includes('nitter')
   ) {
+    return 'nitter';
+  }
+
+  if (normalized.includes('twitter') || normalized.includes('x.com')) {
     return 'twitter';
   }
 
@@ -171,6 +222,14 @@ export function getSourceKind(value: string): ReaderSourceKind {
 
   if (normalized.includes('mastodon')) {
     return 'mastodon';
+  }
+
+  if (normalized.includes('tumblr')) {
+    return 'tumblr';
+  }
+
+  if (normalized.includes('medium')) {
+    return 'medium';
   }
 
   if (
@@ -207,12 +266,24 @@ export function getSourceName(kind: ReaderSourceKind): string {
     return 'Twitter/X';
   }
 
+  if (kind === 'nitter') {
+    return 'Nitter';
+  }
+
   if (kind === 'reddit') {
     return 'Reddit';
   }
 
   if (kind === 'mastodon') {
     return 'Mastodon';
+  }
+
+  if (kind === 'tumblr') {
+    return 'Tumblr';
+  }
+
+  if (kind === 'medium') {
+    return 'Medium';
   }
 
   if (kind === 'newsletter') {
@@ -235,12 +306,17 @@ function extractTargetFromUrl(url: string, sourceKind: ReaderSourceKind): string
     const parsed = new URL(url);
     const segments = parsed.pathname
       .split('/')
-      .map((segment) => prettifyIdentifier(segment))
+      .map((segment) => prettifyUrlSegment(segment))
       .filter(Boolean);
     const genericSegments = new Set([
       'rss',
       'feed',
       'feeds',
+      'xml',
+      'atom',
+      'json',
+      'index',
+      'discover',
       'user',
       'channel',
       'channels',
@@ -258,6 +334,7 @@ function extractTargetFromUrl(url: string, sourceKind: ReaderSourceKind): string
 
     if (
       sourceKind === 'twitter' ||
+      sourceKind === 'nitter' ||
       sourceKind === 'threads' ||
       parsed.hostname.includes('nitter')
     ) {
@@ -284,13 +361,19 @@ function extractTargetFromUrl(url: string, sourceKind: ReaderSourceKind): string
 }
 
 export function getFeedIdentity(
-  feed: Pick<SavedFeed, 'label' | 'url' | 'routeId'>
+  feed: Pick<SavedFeed, 'label' | 'url' | 'routeId'> & { kind?: SavedFeed['kind'] }
 ): FeedIdentity {
   const sourceKind = getSourceKind(`${feed.url} ${feed.routeId} ${feed.label}`);
   const sourceName = getSourceName(sourceKind);
   const targetFromUrl = extractTargetFromUrl(feed.url, sourceKind);
   const label = prettifyIdentifier(feed.label);
-  const title = targetFromUrl || (isGenericRouteTitle(label) ? sourceName : label);
+  const nativeLike = isNativeLikeFeed(feed);
+  const hasMeaningfulNativeLabel = Boolean(label && !isGenericNativeFeedTitle(label));
+  const title = nativeLike
+    ? hasMeaningfulNativeLabel
+      ? label
+      : targetFromUrl || sourceName
+    : targetFromUrl || (isGenericRouteTitle(label) ? sourceName : label);
 
   return {
     title,

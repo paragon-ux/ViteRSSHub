@@ -1,5 +1,5 @@
-import { isProbablyNitterUrl } from './nitter';
-import { isLocalInstanceUrl, toProxyUrl } from './proxyUrl';
+import { isProbablyNitterUrl } from './nitter.js';
+import { isLocalInstanceUrl, toProxyUrl } from './proxyUrl.js';
 
 export type FeedPreviewItem = {
   id: string;
@@ -569,8 +569,15 @@ function getXmlLink(parent: Document | Element | undefined): string | undefined 
   return fallback;
 }
 
-function getXmlMedia(item: Element): { url?: string; type?: string } {
+type XmlMediaCandidate = {
+  selector: string;
+  url?: string;
+  type?: string;
+};
+
+function getXmlMediaCandidates(item: Element): XmlMediaCandidate[] {
   const selectors = ['media:content', 'media:thumbnail', 'thumbnail', 'enclosure'];
+  const candidates: XmlMediaCandidate[] = [];
 
   for (const selector of selectors) {
     const element = getXmlElements(item, [selector])[0];
@@ -585,18 +592,54 @@ function getXmlMedia(item: Element): { url?: string; type?: string } {
 
     const url = element.getAttribute('url') ?? element.getAttribute('href');
     if (url?.trim()) {
-      return {
+      candidates.push({
+        selector,
         url: url.trim(),
         type: type?.trim(),
+      });
+    }
+  }
+
+  return candidates;
+}
+
+export function pickPreferredXmlMedia(
+  candidates: XmlMediaCandidate[],
+  options: { preferImages?: boolean } = {}
+): { url?: string; type?: string } {
+  const usable = candidates.filter((candidate) => Boolean(candidate.url?.trim()));
+
+  if (!usable.length) {
+    return {};
+  }
+
+  if (options.preferImages) {
+    const preferredImage =
+      usable.find((candidate) => candidate.selector.includes('thumbnail')) ||
+      usable.find((candidate) => candidate.type?.startsWith('image/'));
+
+    if (preferredImage) {
+      return {
+        url: preferredImage.url?.trim(),
+        type: preferredImage.type?.trim(),
       };
     }
   }
 
-  return {};
+  return {
+    url: usable[0].url?.trim(),
+    type: usable[0].type?.trim(),
+  };
+}
+
+function getXmlMedia(item: Element): { url?: string; type?: string } {
+  return pickPreferredXmlMedia(getXmlMediaCandidates(item));
 }
 
 function getXmlImage(item: Element, baseUrl?: string): string | undefined {
-  const media = getXmlMedia(item);
+  const media = pickPreferredXmlMedia(getXmlMediaCandidates(item), {
+    preferImages: true,
+  });
   if (media.url) {
     return resolvePreviewAssetUrl(media.url, baseUrl);
   }

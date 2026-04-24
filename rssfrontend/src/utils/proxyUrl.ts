@@ -1,8 +1,18 @@
-const DEV_PROXY_PREFIX = '/rsshub-api';
+const LOCAL_RSSHUB_FETCH_PREFIX = '/local-rsshub-fetch';
 const EXTERNAL_FEED_FETCH_PREFIX = '/feed-fetch';
 
 function isAbsoluteHttpUrl(value: string): boolean {
   return /^https?:\/\//i.test(value);
+}
+
+function isLoopbackHost(hostname: string): boolean {
+  const normalized = hostname.replace(/^\[|\]$/g, '').toLowerCase();
+  return (
+    normalized === 'localhost' ||
+    normalized === '127.0.0.1' ||
+    normalized === '::1' ||
+    normalized === '0.0.0.0'
+  );
 }
 
 export function isLocalInstanceUrl(url: string): boolean {
@@ -12,7 +22,7 @@ export function isLocalInstanceUrl(url: string): boolean {
 
   try {
     const parsed = new URL(url);
-    return parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1';
+    return isLoopbackHost(parsed.hostname);
   } catch {
     return false;
   }
@@ -29,8 +39,7 @@ export function toProxyUrl(url: string): string {
 
   try {
     if (isLocalInstanceUrl(url)) {
-      const parsed = new URL(url);
-      return `${DEV_PROXY_PREFIX}${parsed.pathname}${parsed.search}${parsed.hash}`;
+      return `${LOCAL_RSSHUB_FETCH_PREFIX}?source=${encodeURIComponent(url)}`;
     }
 
     return `${EXTERNAL_FEED_FETCH_PREFIX}?source=${encodeURIComponent(url)}`;

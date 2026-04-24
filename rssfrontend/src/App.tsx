@@ -68,6 +68,7 @@ import {
   mergeReaderItems,
   normalizeReaderCollection,
   normalizePreviewItemsForReader,
+  isGenericNativeFeedTitle,
   type FeedRefreshStatus,
   type FeedIdentity,
   type ReaderCollection,
@@ -89,14 +90,20 @@ import {
   discoverFeedsFromWebsite,
   looksLikeHtmlDocument,
   looksLikeUrlInput,
+  parseAutodiscoveredFeeds,
   type DiscoveredFeedCandidate,
 } from './utils/feedAutodiscovery';
+import {
+  buildNativeFeedAdapterCandidates,
+  detectNativeFeedAdapterPlatform,
+} from './utils/nativeFeedAdapters';
 import {
   buildSourceIconCandidates,
   isDirectFaviconUrl,
   normalizeDomain,
   recordFaviconLookupResult,
 } from './utils/sourceIcons';
+import { toProxyUrl } from './utils/proxyUrl';
 
 const DEFAULT_BASE_URL = 'http://localhost:1200';
 const DEFAULT_REMOTE_CONFIG_URL = '';
@@ -114,7 +121,20 @@ type DetectedNativeFeedResult = Pick<
   itemCount: number;
   typeLabel: string;
   statusLabel: string;
+  platformLabel: string;
 };
+
+type NativeResolutionOutcome =
+  | {
+      kind: 'detected';
+      feed: DetectedNativeFeedResult;
+      message: string;
+    }
+  | {
+      kind: 'discovered';
+      candidates: DiscoveredFeedCandidate[];
+      message: string;
+    };
 
 const READER_SECTIONS = new Set<ReaderSection>([
   'all',
@@ -239,6 +259,10 @@ function getTypeLabel(type: ReaderItemType): string {
   return type.charAt(0).toUpperCase() + type.slice(1);
 }
 
+function getUnknownErrorMessage(unknownError: unknown, fallback: string): string {
+  return unknownError instanceof Error ? unknownError.message : fallback;
+}
+
 function getRouteSourceKind(route?: RouteItem): ReaderSourceKind {
   if (!route) {
     return 'rss';
@@ -278,6 +302,10 @@ function SourceIcon({
     return <Twitter size={size} />;
   }
 
+  if (kind === 'nitter') {
+    return <Twitter size={size} />;
+  }
+
   if (kind === 'threads') {
     return <MessageCircle size={size} />;
   }
@@ -300,6 +328,14 @@ function SourceIcon({
 
   if (kind === 'mastodon') {
     return <MessageCircle size={size} />;
+  }
+
+  if (kind === 'tumblr') {
+    return <MessageCircle size={size} />;
+  }
+
+  if (kind === 'medium') {
+    return <NotebookPen size={size} />;
   }
 
   return <Rss size={size} />;
@@ -404,6 +440,14 @@ function getFeedStatusMessage(status?: FeedRefreshStatus): string {
   }
 
   return 'Ready';
+}
+
+function getOpenFeedUrl(url: string): string {
+  return toProxyUrl(url);
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function makeSavedFeed(payload: {
@@ -984,9 +1028,15 @@ export default function App() {
               contentType: feed.importedContentType,
             })
           : await fetchFeedPreview(feed.url);
+      const previewTitle = preview.snapshot.feedTitle?.trim();
+      const nextLabel =
+        previewTitle &&
+        (!isGenericNativeFeedTitle(previewTitle) || (!feed.label.trim() && feed.kind !== 'rsshub'))
+          ? previewTitle
+          : feed.label;
       const hydratedFeed: SavedFeed = {
         ...feed,
-        label: preview.snapshot.feedTitle?.trim() || feed.label,
+        label: nextLabel,
         homeUrl: preview.snapshot.homeUrl || feed.homeUrl,
         iconUrl: preview.snapshot.feedImageUrl || feed.iconUrl,
       };
@@ -1373,11 +1423,37 @@ export default function App() {
   function getNativeFeedLabel(
     candidate: Pick<
       DetectedNativeFeedResult | DiscoveredFeedCandidate,
-      'url' | 'title' | 'homeUrl' | 'sourceUrl'
+      'url' | 'title' | 'homeUrl' | 'sourceUrl' | 'siteTitle'
     >
   ): string {
+    const title = candidate.title?.trim();
+    if (title && !isGenericNativeFeedTitle(title)) {
+      return title;
+    }
+
+    const sourceIdentity = getFeedIdentity({
+      label: '',
+      url: candidate.homeUrl || candidate.sourceUrl || candidate.url,
+      routeId: 'native:rss',
+    });
+
+    const cleanedSiteTitle = candidate.siteTitle
+      ?.trim()
+      .replace(
+        new RegExp(`\\s*[-|:/·]+\\s*${escapeRegExp(sourceIdentity.sourceName)}$`, 'i'),
+        ''
+      )
+      .trim();
+
+    if (cleanedSiteTitle && !isGenericNativeFeedTitle(cleanedSiteTitle)) {
+      return cleanedSiteTitle;
+    }
+
+    if (sourceIdentity.title !== sourceIdentity.sourceName) {
+      return sourceIdentity.title;
+    }
+
     return (
-      candidate.title?.trim() ||
       normalizeDomain(candidate.homeUrl || candidate.sourceUrl || candidate.url)?.replace(
         /\.[^.]+$/,
         ''
@@ -1408,7 +1484,9 @@ export default function App() {
     candidate: Pick<
       DiscoveredFeedCandidate,
       'url' | 'title' | 'homeUrl' | 'iconUrl' | 'sourceUrl' | 'siteTitle' | 'type'
-    >
+    > & {
+      platformLabel?: string;
+    }
   ): Promise<DetectedNativeFeedResult> {
     const preview = await fetchFeedPreview(candidate.url);
     const isHtmlResponse = looksLikeHtmlDocument(preview.rawText, preview.contentType);
@@ -1417,9 +1495,19 @@ export default function App() {
       throw new Error(preview.note || 'This URL did not return a readable feed.');
     }
 
+    const fallbackIdentity = getFeedIdentity({
+      label: candidate.title,
+      url: candidate.homeUrl || preview.sourceUrl || candidate.url,
+      routeId: 'native:rss',
+    });
+
     return {
-      url: new URL(candidate.url).toString(),
-      title: preview.snapshot.feedTitle?.trim() || getNativeFeedLabel(candidate),
+      url: new URL(preview.sourceUrl || candidate.url).toString(),
+      title:
+        (preview.snapshot.feedTitle?.trim() &&
+        !isGenericNativeFeedTitle(preview.snapshot.feedTitle.trim())
+          ? preview.snapshot.feedTitle.trim()
+          : undefined) || getNativeFeedLabel(candidate),
       sourceUrl: candidate.sourceUrl,
       homeUrl: preview.snapshot.homeUrl || candidate.homeUrl || candidate.sourceUrl,
       iconUrl: preview.snapshot.feedImageUrl || candidate.iconUrl,
@@ -1431,7 +1519,172 @@ export default function App() {
             preview.snapshot.totalItems === 1 ? '' : 's'
           } detected`
         : 'Feed detected',
+      platformLabel: candidate.platformLabel || fallbackIdentity.sourceName,
     };
+  }
+
+  async function resolveNativeFeedAdapterResult(options: {
+    sourceUrl: string;
+    pageHtml?: string;
+  }): Promise<{
+    matched: boolean;
+    detectedFeed?: DetectedNativeFeedResult;
+    errorMessage?: string;
+  }> {
+    const matchedPlatform = detectNativeFeedAdapterPlatform(options.sourceUrl);
+    if (!matchedPlatform) {
+      return { matched: false };
+    }
+
+    const adapterCandidates = buildNativeFeedAdapterCandidates(options);
+    if (!adapterCandidates.length) {
+      return {
+        matched: true,
+        errorMessage: 'No native feed found for this URL. Try an RSSHub route if available.',
+      };
+    }
+
+    let lastError = 'Adapter candidate failed validation.';
+
+    for (const candidate of adapterCandidates) {
+      try {
+        const detectedFeed = await buildDetectedNativeFeedResult(candidate);
+        return { matched: true, detectedFeed };
+      } catch (unknownError) {
+        lastError = getUnknownErrorMessage(
+          unknownError,
+          'Adapter candidate failed validation.'
+        );
+      }
+    }
+
+    return {
+      matched: true,
+      errorMessage: lastError,
+    };
+  }
+
+  async function resolveNativeInputCandidate(
+    candidateUrl: string
+  ): Promise<NativeResolutionOutcome> {
+    let lastError = 'No native feed found for this URL. Try an RSSHub route if available.';
+    let pageHtml: string | undefined;
+    let pageSourceUrl = candidateUrl;
+
+    try {
+      const preview = await fetchFeedPreview(candidateUrl);
+      const isHtmlResponse = looksLikeHtmlDocument(preview.rawText, preview.contentType);
+
+      if (!isHtmlResponse && preview.state !== 'parse_failed') {
+        return {
+          kind: 'detected',
+          feed: await buildDetectedNativeFeedResult({
+            url: preview.sourceUrl || candidateUrl,
+            title: candidateUrl,
+            sourceUrl: candidateUrl,
+            homeUrl: preview.snapshot.homeUrl || candidateUrl,
+            iconUrl: preview.snapshot.feedImageUrl,
+            siteTitle: preview.snapshot.feedTitle,
+            type: getDetectedFeedTypeLabel(preview.contentType),
+          }),
+          message: 'Detected feed ready to add.',
+        };
+      }
+
+      pageSourceUrl = preview.sourceUrl || candidateUrl;
+      pageHtml = isHtmlResponse ? preview.rawText : undefined;
+
+      const discovery = isHtmlResponse
+        ? parseAutodiscoveredFeeds({
+            html: preview.rawText,
+            sourceUrl: pageSourceUrl,
+            contentType: preview.contentType,
+          })
+        : await discoverFeedsFromWebsite(pageSourceUrl);
+
+      if (discovery.candidates.length === 1) {
+        try {
+          return {
+            kind: 'detected',
+            feed: await buildDetectedNativeFeedResult(discovery.candidates[0]),
+            message: 'Detected feed ready to add.',
+          };
+        } catch (unknownError) {
+          lastError = getUnknownErrorMessage(
+            unknownError,
+            'Adapter candidate failed validation.'
+          );
+        }
+      }
+
+      if (discovery.candidates.length > 1) {
+        return {
+          kind: 'discovered',
+          candidates: discovery.candidates,
+          message: `Found ${discovery.candidates.length} feeds on this page. Choose one to preview.`,
+        };
+      }
+
+      lastError = isHtmlResponse
+        ? 'No native feed found for this URL. Try an RSSHub route if available.'
+        : preview.note || 'This URL did not return a readable feed.';
+    } catch (unknownError) {
+      lastError = getUnknownErrorMessage(unknownError, 'Unable to read this URL.');
+
+      try {
+        const discovery = await discoverFeedsFromWebsite(candidateUrl);
+        pageSourceUrl = discovery.sourceUrl || candidateUrl;
+
+        if (discovery.candidates.length === 1) {
+          try {
+            return {
+              kind: 'detected',
+              feed: await buildDetectedNativeFeedResult(discovery.candidates[0]),
+              message: 'Detected feed ready to add.',
+            };
+          } catch (discoveryCandidateError) {
+            lastError = getUnknownErrorMessage(
+              discoveryCandidateError,
+              'Adapter candidate failed validation.'
+            );
+          }
+        }
+
+        if (discovery.candidates.length > 1) {
+          return {
+            kind: 'discovered',
+            candidates: discovery.candidates,
+            message: `Found ${discovery.candidates.length} feeds on this page. Choose one to preview.`,
+          };
+        }
+
+        lastError = 'No native feed found for this URL. Try an RSSHub route if available.';
+      } catch (discoveryError) {
+        lastError = getUnknownErrorMessage(discoveryError, lastError);
+      }
+    }
+
+    const adapterResolution = await resolveNativeFeedAdapterResult({
+      sourceUrl: pageSourceUrl,
+      pageHtml,
+    });
+
+    if (adapterResolution.detectedFeed) {
+      return {
+        kind: 'detected',
+        feed: adapterResolution.detectedFeed,
+        message: 'Detected feed ready to add.',
+      };
+    }
+
+    if (adapterResolution.matched) {
+      throw new Error(
+        adapterResolution.errorMessage ||
+          'No native feed found for this URL. Try an RSSHub route if available.'
+      );
+    }
+
+    throw new Error(lastError);
   }
 
   async function saveResolvedNativeFeed(
@@ -1546,109 +1799,26 @@ export default function App() {
     setDiscoveredFeedCandidates([]);
 
     try {
-      let lastError =
-        'Unable to detect a feed from this input. Try a direct feed URL or a page with standard RSS links.';
+      let lastError = 'No native feed found for this URL. Try an RSSHub route if available.';
 
       for (const candidateUrl of urlCandidates) {
         try {
-          const preview = await fetchFeedPreview(candidateUrl);
-          const isHtmlResponse = looksLikeHtmlDocument(
-            preview.rawText,
-            preview.contentType
-          );
+          const outcome = await resolveNativeInputCandidate(candidateUrl);
 
-          if (!isHtmlResponse && preview.state !== 'parse_failed') {
-            setDetectedNativeFeed({
-              url: candidateUrl,
-              title:
-                preview.snapshot.feedTitle?.trim() ||
-                getNativeFeedLabel({
-                  url: candidateUrl,
-                  title: candidateUrl,
-                  sourceUrl: candidateUrl,
-                  homeUrl: preview.snapshot.homeUrl || candidateUrl,
-                }),
-              sourceUrl: candidateUrl,
-              homeUrl: preview.snapshot.homeUrl || candidateUrl,
-              iconUrl: preview.snapshot.feedImageUrl,
-              siteTitle: preview.snapshot.feedTitle,
-              itemCount: preview.snapshot.totalItems,
-              typeLabel: getDetectedFeedTypeLabel(preview.contentType),
-              statusLabel: preview.snapshot.totalItems
-                ? `${preview.snapshot.totalItems} item${
-                    preview.snapshot.totalItems === 1 ? '' : 's'
-                  } detected`
-                : 'Feed detected',
-            });
-            setNativeAddMessage('Detected feed ready to add.');
+          if (outcome.kind === 'detected') {
+            setDetectedNativeFeed(outcome.feed);
+            setNativeAddMessage(outcome.message);
             return;
           }
 
-          const discovery = await discoverFeedsFromWebsite(candidateUrl);
-
-          if (!discovery.isHtml) {
-            lastError = preview.note || 'This URL did not return a readable feed.';
-            continue;
-          }
-
-          if (!discovery.candidates.length) {
-            lastError = preview.note || 'No RSS or Atom feeds were found on this page.';
-            continue;
-          }
-
-          if (discovery.candidates.length === 1) {
-            const detectedFeed = await buildDetectedNativeFeedResult(
-              discovery.candidates[0]
-            );
-            setDetectedNativeFeed(detectedFeed);
-            setNativeAddMessage('Detected feed ready to add.');
-            return;
-          }
-
-          setDiscoveredFeedCandidates(discovery.candidates);
-          setNativeAddMessage(
-            `Found ${discovery.candidates.length} feeds on this page. Choose one to preview.`
-          );
+          setDiscoveredFeedCandidates(outcome.candidates);
+          setNativeAddMessage(outcome.message);
           return;
         } catch (unknownError) {
-          try {
-            const discovery = await discoverFeedsFromWebsite(candidateUrl);
-
-            if (!discovery.isHtml) {
-              lastError =
-                unknownError instanceof Error
-                  ? unknownError.message
-                  : 'Unable to read this URL.';
-              continue;
-            }
-
-            if (!discovery.candidates.length) {
-              lastError = 'No RSS or Atom feeds were found on this page.';
-              continue;
-            }
-
-            if (discovery.candidates.length === 1) {
-              const detectedFeed = await buildDetectedNativeFeedResult(
-                discovery.candidates[0]
-              );
-              setDetectedNativeFeed(detectedFeed);
-              setNativeAddMessage('Detected feed ready to add.');
-              return;
-            }
-
-            setDiscoveredFeedCandidates(discovery.candidates);
-            setNativeAddMessage(
-              `Found ${discovery.candidates.length} feeds on this page. Choose one to preview.`
-            );
-            return;
-          } catch (discoveryError) {
-            lastError =
-              discoveryError instanceof Error
-                ? discoveryError.message
-                : unknownError instanceof Error
-                  ? unknownError.message
-                  : lastError;
-          }
+          lastError = getUnknownErrorMessage(
+            unknownError,
+            'No native feed found for this URL. Try an RSSHub route if available.'
+          );
         }
       }
 
@@ -2009,7 +2179,7 @@ export default function App() {
               <div className="reader-header-actions">
                 <a
                   className="reader-button"
-                  href={activeFeed.url}
+                  href={getOpenFeedUrl(activeFeed.url)}
                   target="_blank"
                   rel="noreferrer"
                 >
@@ -2176,7 +2346,7 @@ export default function App() {
           <section className="reader-follow-card reader-native-result-card">
             <div className="reader-section-title">
               <h3>Detected native feed</h3>
-              <span>{detectedNativeFeed.typeLabel}</span>
+              <span>{detectedNativeFeed.platformLabel}</span>
             </div>
             <div className="reader-follow-card-main">
               {detectedNativeIdentity ? (
@@ -2187,14 +2357,18 @@ export default function App() {
                 />
               ) : null}
               <div>
-                <strong>{normalizeDomain(detectedNativeFeed.homeUrl || detectedNativeFeed.url) || 'Native feed'}</strong>
+                <span className="reader-kicker">{detectedNativeFeed.platformLabel}</span>
+                <strong>
+                  {normalizeDomain(detectedNativeFeed.homeUrl || detectedNativeFeed.url) ||
+                    'Native feed'}
+                </strong>
                 <h3>{detectedNativeFeed.title}</h3>
                 <p>{detectedNativeFeed.url}</p>
               </div>
             </div>
             <div className="reader-feed-card-meta">
               <span>{detectedNativeFeed.statusLabel}</span>
-              {detectedNativeFeed.siteTitle ? <span>{detectedNativeFeed.siteTitle}</span> : null}
+              <span>{detectedNativeFeed.platformLabel}</span>
               <span>{detectedNativeFeed.typeLabel}</span>
             </div>
             <div className="reader-native-actions">
@@ -2208,7 +2382,7 @@ export default function App() {
               </button>
               <a
                 className="reader-button"
-                href={detectedNativeFeed.url}
+                href={getOpenFeedUrl(detectedNativeFeed.url)}
                 target="_blank"
                 rel="noreferrer"
               >
@@ -2537,7 +2711,7 @@ export default function App() {
                     </button>
                     <a
                       className="reader-icon-button"
-                      href={feed.url}
+                      href={getOpenFeedUrl(feed.url)}
                       target="_blank"
                       rel="noreferrer"
                       aria-label="Open raw feed"
@@ -3098,7 +3272,7 @@ export default function App() {
             </a>
           ) : null}
           {rawFeed ? (
-            <a href={rawFeed.url} target="_blank" rel="noreferrer">
+            <a href={getOpenFeedUrl(rawFeed.url)} target="_blank" rel="noreferrer">
               <Rss size={15} />
               <span>Raw feed</span>
             </a>
@@ -3149,7 +3323,8 @@ export default function App() {
   }
 
   const isReaderIntroExpanded = activeSection === 'all' || activeSection === 'library';
-  const showReaderSidebar = activeSection === 'all' || activeSection === 'library';
+  const showReaderSidebar =
+    READER_SECTIONS.has(activeSection) || activeSection === 'library';
   const detailPanel = renderReaderDetail();
 
   return (
@@ -3272,7 +3447,7 @@ export default function App() {
               <span className="reader-sidebar-label">Feeds</span>
               {savedFeeds.map((feed) => {
                 const identity = getFeedIdentity(feed);
-                const isActive = activeSection === 'library' && activeFeedId === feed.id;
+                const isActive = activeSection === 'feed' && activeFeedId === feed.id;
                 const status = feedStatuses[feed.id];
                 const isOptionsOpen = openFeedOptionsId === feed.id;
                 const iconCandidates = getSourceIconCandidates(feed);
@@ -3383,7 +3558,7 @@ export default function App() {
                   </span>
                   {normalizedReaderCollections.map((collection) => {
                     const isActive =
-                      activeSection === 'library' &&
+                      activeSection === 'collection' &&
                       activeCollectionId === collection.id;
                     const collectionOptionsId = `collection:${collection.id}`;
                     const isOptionsOpen = openFeedOptionsId === collectionOptionsId;

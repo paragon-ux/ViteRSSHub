@@ -5,8 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "test": "npm run test:docs",
+    "test": "npm run test:docs && npm run test:native-adapters",
     "test:docs": "node ./scripts/validate-route-docs.mjs",
+    "test:native-adapters": "npm exec tsc -- -p tsconfig.native-adapters.json && node .tmp-native-adapters/tests/nativeFeedAdapters.test.js",
     "build": "tsc -b && vite build",
     "preview": "vite preview"
   },
